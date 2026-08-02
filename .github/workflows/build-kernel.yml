@@ -12,15 +12,15 @@ on:
         required: true
         default: 'lineage-24.0'
       BUILD_KSU:
-        description: 'Include KernelSU'
+        description: 'Include KernelSU-Next'
         required: false
         type: boolean
-        default: false
+        default: true
       BUILD_SUSFS:
         description: 'Include SUSFS'
         required: false
         type: boolean
-        default: false
+        default: true
 
 jobs:
   build:
@@ -71,10 +71,20 @@ jobs:
           tar -xf clang.tar.gz -C clang/
           rm -f clang.tar.gz
 
-      - name: Setup AnyKernel3
+      - name: Setup KernelSU-Next and SUSFS
         run: |
-          cd workspace
-          git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
+          cd workspace/kernel
+          if [ "${{ github.event.inputs.BUILD_KSU }}" = "true" ]; then
+            echo "==> Integrating KernelSU-Next..."
+            curl -LSs "https://raw.githubusercontent.com/rifs280/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          fi
+          if [ "${{ github.event.inputs.BUILD_SUSFS }}" = "true" ]; then
+            echo "==> Integrating SUSFS..."
+            git clone --depth=1 https://gitlab.com/simonpang/susfs4ksu.git -b gki-android12-5.10 susfs
+            cp -r susfs/kernel_patches/fs/* fs/
+            cp -r susfs/kernel_patches/include/linux/* include/linux/
+            cp -r susfs/kernel_patches/5.10/* . || true
+          fi
 
       - name: Build Kernel and Modules
         run: |
