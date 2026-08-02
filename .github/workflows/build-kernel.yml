@@ -66,10 +66,10 @@ jobs:
         run: |
           cd workspace
           mkdir -p clang
-          wget -q https://raw.githubusercontent.com/tc-build/tc-build/main/clang-nightly/download.sh
-          # Use Android AOSP Clang or Proton-Clang for SM4450/Sky kernel
-          git clone --depth=1 https://gitlab.com/reaganknn/clang-r450718.git clang/host/linux-x86/clang-r450718 || \
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang/host/linux-x86/clang-r450718
+          wget -q https://github.com/ZyC-msm8996/ZyCclang/releases/download/19.0.0-20240410/ZyCclang-19.0.0-20240410.tar.gz -O clang.tar.gz || \
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450718.tar.gz -O clang.tar.gz
+          tar -xf clang.tar.gz -C clang/
+          rm -f clang.tar.gz
 
       - name: Setup AnyKernel3
         run: |
@@ -79,7 +79,7 @@ jobs:
       - name: Build Kernel and Modules
         run: |
           cd workspace/kernel
-          export PATH=$GITHUB_WORKSPACE/workspace/clang/host/linux-x86/clang-r450718/bin:$PATH
+          export PATH=$GITHUB_WORKSPACE/workspace/clang/bin:$PATH
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
