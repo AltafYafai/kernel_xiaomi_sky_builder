@@ -76,7 +76,7 @@ jobs:
           fi
           if [ "${{ github.event.inputs.BUILD_SUSFS }}" = "true" ]; then
             echo "==> Integrating SUSFS..."
-            git clone --depth=1 https://gitlab.com/simonpang/susfs4ksu.git -b gki-android12-5.10 susfs
+            git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 susfs
             cp -r susfs/kernel_patches/fs/* fs/
             cp -r susfs/kernel_patches/include/linux/* include/linux/
             cp -r susfs/kernel_patches/5.10/* . || true
