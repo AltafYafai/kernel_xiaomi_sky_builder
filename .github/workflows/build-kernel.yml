@@ -65,7 +65,9 @@ jobs:
       - name: Setup Clang Toolchain
         run: |
           cd workspace
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android-13.0.0_r43 clang-prebuilts
+          mkdir -p clang
+          cp -r clang-prebuilts/clang-r*/* clang/ || cp -r clang-prebuilts/clang-r450718/* clang/
 
       - name: Setup KernelSU-Next and SUSFS
         run: |
