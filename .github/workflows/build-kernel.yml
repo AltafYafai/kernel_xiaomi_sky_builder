@@ -72,7 +72,7 @@ jobs:
           cd workspace/kernel
           if [ "${{ github.event.inputs.BUILD_KSU }}" = "true" ]; then
             echo "==> Integrating KernelSU-Next..."
-            curl -LSs "https://raw.githubusercontent.com/rifs280/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           fi
           if [ "${{ github.event.inputs.BUILD_SUSFS }}" = "true" ]; then
             echo "==> Integrating SUSFS..."
