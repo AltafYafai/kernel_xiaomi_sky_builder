@@ -96,7 +96,9 @@ jobs:
           export KBUILD_BUILD_HOST=GitHub-Actions
           export KBUILD_BUILD_USER=AltafYafai
 
-          make O=out vendor/sky_defconfig
+          make O=out gki_defconfig
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
+          make O=out olddefconfig
           make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
       - name: Prepare AnyKernel3 Zip
