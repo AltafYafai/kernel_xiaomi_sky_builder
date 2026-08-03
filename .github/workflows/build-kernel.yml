@@ -43,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git ccache libssl-dev bison flex libelf-dev build-essential zip curl libssl-dev libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools
+          sudo apt-get install -y git ccache libssl-dev bison flex libelf-dev build-essential zip curl libssl-dev libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi
 
       - name: Set up build environment directory
         run: |
