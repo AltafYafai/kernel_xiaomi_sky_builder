@@ -65,8 +65,7 @@ jobs:
       - name: Setup Clang Toolchain
         run: |
           cd workspace
-          mkdir -p clang
-          curl -s https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r450718.tar.gz | tar -xz -C clang/
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
 
       - name: Setup KernelSU-Next and SUSFS
         run: |
