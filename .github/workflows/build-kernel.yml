@@ -83,6 +83,7 @@ jobs:
             cp -r susfs/kernel_patches/include/linux/* include/linux/
             cp -r susfs/kernel_patches/5.10/* . || true
           fi
+          sed -i 's/#include <linux\/types.h>/#include <linux\/types.h>\n#include <linux\/errno.h>/' include/soc/qcom/socinfo.h
 
       - name: Build Kernel and Modules
         run: |
