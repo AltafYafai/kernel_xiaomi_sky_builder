@@ -105,6 +105,7 @@ jobs:
       - name: Prepare AnyKernel3 Zip
         run: |
           cd workspace
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/ || cp kernel/out/arch/arm64/boot/Image AnyKernel3/
           if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
