@@ -65,9 +65,9 @@ jobs:
       - name: Setup Clang Toolchain
         run: |
           cd workspace
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android-13.0.0_r43 clang-prebuilts
           mkdir -p clang
-          cp -r clang-prebuilts/clang-r*/* clang/ || cp -r clang-prebuilts/clang-r450718/* clang/
+          curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r488900.tar.gz
+          tar -xzf clang-r488900.tar.gz -C clang
 
       - name: Setup KernelSU-Next and SUSFS
         run: |
@@ -83,7 +83,7 @@ jobs:
             cp -r susfs/kernel_patches/include/linux/* include/linux/
             cp -r susfs/kernel_patches/5.10/* . || true
           fi
-          sed -i 's/#include <linux\/types.h>/#include <linux\/types.h>\n#include <linux\/errno.h>/' include/soc/qcom/socinfo.h
+          sed -i 's/#include <linux\/types.h>/#include <linux\/types.h>\n#include <linux\/errno.h>/' include/soc/qcom/socinfo.h || true
 
       - name: Build Kernel and Modules
         run: |
@@ -92,24 +92,30 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export HEADER_ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export KBUILD_BUILD_HOST=GitHub-Actions
           export KBUILD_BUILD_USER=AltafYafai
 
-          make O=out gki_defconfig
+          make O=out ARCH=arm64 gki_defconfig
           ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
-          make O=out olddefconfig
-          make -j$(nproc --all) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
+          make O=out ARCH=arm64 olddefconfig
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: Prepare AnyKernel3 Zip
         run: |
           cd workspace
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
           if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
           fi
+          mkdir -p AnyKernel3/modules
+          find kernel/out -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
           cd AnyKernel3
           sed -i 's/kernel.string=.*/kernel.string=Sky Kernel for Redmi 12 5G/' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
