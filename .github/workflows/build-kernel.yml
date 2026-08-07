@@ -107,10 +107,11 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+          DEBIAN_FRONTEND: noninteractive
         run: |
           ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [█░░░░░░░░░] 10%%0A<b>Step:</b> Installing system dependencies..."
-          sudo apt-get update
-          sudo apt-get install -y git ccache libssl-dev bison flex libelf-dev build-essential zip curl libssl-dev libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi jq
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ccache libssl-dev bison flex libelf-dev build-essential zip curl libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi jq
 
       - name: Set up build environment directory
         run: |
