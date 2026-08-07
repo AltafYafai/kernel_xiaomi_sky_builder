@@ -138,8 +138,7 @@ jobs:
         run: |
           ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [████░░░░░░] 40%%0A<b>Step:</b> Downloading and setting up Clang toolchain..."
           cd workspace
-          mkdir -p clang
-          git clone --depth=1 https://gitlab.com/ZyCronite/clang.git -b bionic-r488900 clang
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r488900.git clang
 
       - name: Setup KernelSU-Next and SUSFS (55%)
         env:
@@ -186,7 +185,7 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee make.log
 
       - name: Prepare AnyKernel3 Zip (90%)
         env:
@@ -244,20 +243,18 @@ jobs:
           echo "Workflow: ${{ github.workflow }}" >> "$LOG_FILE"
           echo "Commit: ${{ env.KERNEL_REV }}" >> "$LOG_FILE"
           echo "Timestamp: $(date -u)" >> "$LOG_FILE"
-          echo -e "\n=== KERNEL COMPILATION ERROR LOG (Tail 150 lines) ===" >> "$LOG_FILE"
+          echo -e "\n=== ERROR DETAILS ===" >> "$LOG_FILE"
           
-          if [ -f workspace/kernel/out/make.log ]; then
-            tail -n 150 workspace/kernel/out/make.log >> "$LOG_FILE"
-          elif [ -d workspace/kernel/out ]; then
-            find workspace/kernel/out -name "*.log" -exec tail -n 50 {} + >> "$LOG_FILE"
+          if [ -f workspace/kernel/make.log ]; then
+            tail -n 200 workspace/kernel/make.log >> "$LOG_FILE"
+          elif [ -f workspace/kernel/out/make.log ]; then
+            tail -n 200 workspace/kernel/out/make.log >> "$LOG_FILE"
           else
-            echo "No make.log generated yet." >> "$LOG_FILE"
+            echo "Step failed before compilation log creation." >> "$LOG_FILE"
           fi
 
-          ERR_SUMMARY=$(tail -n 20 "$LOG_FILE" | grep -iE 'error:|failed|fatal:' | head -n 5)
-          [ -z "$ERR_SUMMARY" ] && ERR_SUMMARY="Compilation aborted unexpectedly. Check log file attached below."
-
-          ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Kernel Build Failed!</b>%0A%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Error Preview:</b>%0A<code>${ERR_SUMMARY}</code>"
+          ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Kernel Build Failed!</b>%0A%0A<b>Run ID:</b> ${{ github.run_id }}%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Failed! See attached error log."
           ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log"
+
 
 
