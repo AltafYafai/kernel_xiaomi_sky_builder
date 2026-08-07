@@ -139,7 +139,8 @@ jobs:
         run: |
           ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [████░░░░░░] 40%%0A<b>Step:</b> Downloading and setting up Clang toolchain..."
           cd workspace
-          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r488900.git clang
+          mkdir -p clang
+          curl -LSs https://github.com/proton-clang/proton-clang/archive/refs/heads/master.tar.gz | tar -xz -C clang --strip-components=1
 
       - name: Setup KernelSU-Next and SUSFS (55%)
         env:
@@ -255,7 +256,8 @@ jobs:
           fi
 
           ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Kernel Build Failed!</b>%0A%0A<b>Run ID:</b> ${{ github.run_id }}%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Failed! See attached error log."
-          ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log"
+          ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log" || true
+
 
 
 
