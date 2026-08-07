@@ -49,8 +49,9 @@ jobs:
           mkdir -p .telegram
           cat << 'EOF' > .telegram/tg.sh
           #!/usr/bin/env bash
-          BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
+          BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-8157097626:AAGt4JlDyTBO-rm5XX9CCycY4ys1RuZKnbU}"
           CHAT_ID="${TELEGRAM_CHAT_ID:-${INPUT_TELEGRAM_CHAT_ID}}"
+          CHAT_ID="${CHAT_ID:--1003813498680}"
 
           if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
             echo "Telegram credentials missing, skipping telegram update."
