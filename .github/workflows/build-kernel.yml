@@ -67,7 +67,7 @@ jobs:
               -d "chat_id=${CHAT_ID}" \
               -d "parse_mode=HTML" \
               -d "text=${TEXT}")
-            MSG_ID=$(echo "$RES" | jq -r '.result.message_id 2>/dev/null')
+            MSG_ID=$(echo "$RES" | jq -r '.result.message_id' 2>/dev/null || true)
             if [ -n "$MSG_ID" ] && [ "$MSG_ID" != "null" ]; then
               echo "$MSG_ID" > "$MSG_ID_FILE"
             fi
@@ -82,7 +82,7 @@ jobs:
             else
               $0 start "$TEXT"
             fi
-          elif [ "$ACTION" = "send_document" ]; path="$2" caption="$3"; then
+          elif [ "$ACTION" = "send_document" ]; then
             FILE_PATH="$2"
             CAPTION="$3"
             curl -s -F "chat_id=${CHAT_ID}" \
@@ -139,8 +139,7 @@ jobs:
           ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [████░░░░░░] 40%%0A<b>Step:</b> Downloading and setting up Clang toolchain..."
           cd workspace
           mkdir -p clang
-          curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r488900.tar.gz
-          tar -xzf clang-r488900.tar.gz -C clang
+          git clone --depth=1 https://gitlab.com/ZyCronite/clang.git -b bionic-r488900 clang
 
       - name: Setup KernelSU-Next and SUSFS (55%)
         env:
