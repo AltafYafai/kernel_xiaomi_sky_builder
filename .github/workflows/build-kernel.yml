@@ -230,3 +230,35 @@ jobs:
           name: sky-kernel-${{ env.KERNEL_REV }}
           path: workspace/sky-kernel-*.zip
 
+      - name: Handle Build Failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          mkdir -p /tmp/logs
+          LOG_FILE="/tmp/logs/build_error_${{ github.run_id }}.log"
+          
+          echo "=== BUILD FAILURE LOG REPORT ===" > "$LOG_FILE"
+          echo "Run ID: ${{ github.run_id }}" >> "$LOG_FILE"
+          echo "Workflow: ${{ github.workflow }}" >> "$LOG_FILE"
+          echo "Commit: ${{ env.KERNEL_REV }}" >> "$LOG_FILE"
+          echo "Timestamp: $(date -u)" >> "$LOG_FILE"
+          echo -e "\n=== KERNEL COMPILATION ERROR LOG (Tail 150 lines) ===" >> "$LOG_FILE"
+          
+          if [ -f workspace/kernel/out/make.log ]; then
+            tail -n 150 workspace/kernel/out/make.log >> "$LOG_FILE"
+          elif [ -d workspace/kernel/out ]; then
+            find workspace/kernel/out -name "*.log" -exec tail -n 50 {} + >> "$LOG_FILE"
+          else
+            echo "No make.log generated yet." >> "$LOG_FILE"
+          fi
+
+          ERR_SUMMARY=$(tail -n 20 "$LOG_FILE" | grep -iE 'error:|failed|fatal:' | head -n 5)
+          [ -z "$ERR_SUMMARY" ] && ERR_SUMMARY="Compilation aborted unexpectedly. Check log file attached below."
+
+          ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Kernel Build Failed!</b>%0A%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Error Preview:</b>%0A<code>${ERR_SUMMARY}</code>"
+          ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log"
+
+
