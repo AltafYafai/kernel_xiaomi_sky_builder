@@ -21,6 +21,10 @@ on:
         required: false
         type: boolean
         default: true
+      TELEGRAM_CHAT_ID:
+        description: 'Telegram Chat ID'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -40,37 +44,110 @@ jobs:
       - name: Checkout Builder Repo
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Setup Telegram Helper
         run: |
+          mkdir -p .telegram
+          cat << 'EOF' > .telegram/tg.sh
+          #!/usr/bin/env bash
+          BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
+          CHAT_ID="${TELEGRAM_CHAT_ID:-${INPUT_TELEGRAM_CHAT_ID}}"
+
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram credentials missing, skipping telegram update."
+            exit 0
+          fi
+
+          ACTION="$1"
+          TEXT="$2"
+          MSG_ID_FILE="/tmp/tg_msg_id.txt"
+
+          if [ "$ACTION" = "start" ]; then
+            RES=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${CHAT_ID}" \
+              -d "parse_mode=HTML" \
+              -d "text=${TEXT}")
+            MSG_ID=$(echo "$RES" | jq -r '.result.message_id 2>/dev/null')
+            if [ -n "$MSG_ID" ] && [ "$MSG_ID" != "null" ]; then
+              echo "$MSG_ID" > "$MSG_ID_FILE"
+            fi
+          elif [ "$ACTION" = "update" ]; then
+            if [ -f "$MSG_ID_FILE" ]; then
+              MSG_ID=$(cat "$MSG_ID_FILE")
+              curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/editMessageText" \
+                -d "chat_id=${CHAT_ID}" \
+                -d "message_id=${MSG_ID}" \
+                -d "parse_mode=HTML" \
+                -d "text=${TEXT}" > /dev/null
+            else
+              $0 start "$TEXT"
+            fi
+          elif [ "$ACTION" = "send_document" ]; path="$2" caption="$3"; then
+            FILE_PATH="$2"
+            CAPTION="$3"
+            curl -s -F "chat_id=${CHAT_ID}" \
+              -F "document=@${FILE_PATH}" \
+              -F "caption=${CAPTION}" \
+              -F "parse_mode=HTML" \
+              "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" > /dev/null
+          fi
+          EOF
+          chmod +x .telegram/tg.sh
+
+      - name: Notify Build Started (0%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh start "<b>🔨 Xiaomi Sky Kernel Build Started</b>%0A%0A<b>Progress:</b> [░░░░░░░░░░] 0%%0A<b>Step:</b> Initializing Build Environment"
+
+      - name: Install dependencies (10%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [█░░░░░░░░░] 10%%0A<b>Step:</b> Installing system dependencies..."
           sudo apt-get update
-          sudo apt-get install -y git ccache libssl-dev bison flex libelf-dev build-essential zip curl libssl-dev libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi
+          sudo apt-get install -y git ccache libssl-dev bison flex libelf-dev build-essential zip curl libssl-dev libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi jq
 
       - name: Set up build environment directory
         run: |
           mkdir -p workspace
-          cd workspace
 
-      - name: Clone Kernel Source
+      - name: Clone Kernel & Modules Source (25%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [██░░░░░░░░] 25%%0A<b>Step:</b> Cloning Kernel & Modules sources..."
           cd workspace
           git clone -b ${{ github.event.inputs.KERNEL_BRANCH }} --depth=1 https://github.com/AltafYafai/kernel_xiaomi_sky.git kernel
           cd kernel
           echo "KERNEL_REV=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Clone Modules Source
-        run: |
-          cd workspace
+          cd ..
           git clone -b ${{ github.event.inputs.MODULES_BRANCH }} --depth=1 https://github.com/AltafYafai/kernel_xiaomi_sky-modules.git kernel/vendor/qcom/opensource/mm-drivers
 
-      - name: Setup Clang Toolchain
+      - name: Setup Clang Toolchain (40%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [████░░░░░░] 40%%0A<b>Step:</b> Downloading and setting up Clang toolchain..."
           cd workspace
           mkdir -p clang
           curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r488900.tar.gz
           tar -xzf clang-r488900.tar.gz -C clang
 
-      - name: Setup KernelSU-Next and SUSFS
+      - name: Setup KernelSU-Next and SUSFS (55%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [█████░░░░░] 55%%0A<b>Step:</b> Patching KernelSU-Next and SUSFS..."
           cd workspace/kernel
           if [ "${{ github.event.inputs.BUILD_KSU }}" = "true" ]; then
             echo "==> Integrating KernelSU-Next..."
@@ -85,8 +162,13 @@ jobs:
           fi
           sed -i 's/#include <linux\/types.h>/#include <linux\/types.h>\n#include <linux\/errno.h>/' include/soc/qcom/socinfo.h || true
 
-      - name: Build Kernel and Modules
+      - name: Build Kernel and Modules (75%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [███████░░░] 75%%0A<b>Step:</b> Compiling Kernel Image & Drivers (LLVM=1)..."
           cd workspace/kernel
           export PATH=$GITHUB_WORKSPACE/workspace/clang/bin:$PATH
           export ARCH=arm64
@@ -106,8 +188,13 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
-      - name: Prepare AnyKernel3 Zip
+      - name: Prepare AnyKernel3 Zip (90%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Kernel Build</b>%0A%0A<b>Progress:</b> [█████████░] 90%%0A<b>Step:</b> Packaging AnyKernel3 Flashable Zip..."
           cd workspace
           git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
@@ -124,8 +211,21 @@ jobs:
           sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
           zip -r9 ../sky-kernel-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
 
-      - name: Upload Kernel Artifact
+      - name: Upload Kernel Artifact & Notify Complete (100%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading zip..."
+          ZIP_FILE=$(ls workspace/sky-kernel-*.zip | head -n1)
+          if [ -f "$ZIP_FILE" ]; then
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable Kernel Zip:</b> $(basename $ZIP_FILE)"
+          fi
+
+      - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
           name: sky-kernel-${{ env.KERNEL_REV }}
           path: workspace/sky-kernel-*.zip
+
