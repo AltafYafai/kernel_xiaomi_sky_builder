@@ -162,6 +162,10 @@ jobs:
           export KBUILD_BUILD_HOST=GitHub-Actions
           export KBUILD_BUILD_USER=AltafYafai
 
+          # Setup vendor devicetrees inside arch/arm64/boot/dts/vendor
+          rm -rf arch/arm64/boot/dts/vendor
+          cp -r ../sm4450-devicetrees arch/arm64/boot/dts/vendor
+
           mkdir -p out
           echo "Configuring gki_defconfig..."
           make O=out ARCH=arm64 gki_defconfig
