@@ -106,7 +106,7 @@ jobs:
           ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█░░░░░░░░░] 15%%0A<b>Step:</b> Installing Clang 18 and build dependencies..."
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            git ccache libssl-dev bison flex libelf-dev build-essential zip curl \
+            git ccache libssl-dev bison flex libelf-dev libdw-dev build-essential zip curl \
             libncurses-dev bc python3 python3-pip rsync u-boot-tools \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
             clang-18 lld-18 llvm-18 jq
@@ -171,6 +171,7 @@ jobs:
           make O=out ARCH=arm64 olddefconfig
 
           echo "Compiling Linux 6.12 Kernel Image & DTBs..."
+          set -o pipefail
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC=clang \
