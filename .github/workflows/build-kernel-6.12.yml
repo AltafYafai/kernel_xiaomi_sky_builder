@@ -206,12 +206,14 @@ jobs:
 
           # Concatenate base Sky device trees into flat AnyKernel3 dtb file
           find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
+          [ -s AnyKernel3/dtb ] || rm -f AnyKernel3/dtb
 
           # Pack compiled Sky DTBO overlays into AnyKernel3 dtbo.img using mkdtboimg.py
-          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" | tr '\n' ' ')
-          if [ -n "$SKY_DTBOS" ]; then
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" 2>/dev/null | tr '\n' ' ')
+          if [ -n "${SKY_DTBOS// }" ]; then
             python3 ../scripts/mkdtboimg.py create AnyKernel3/dtbo.img --page_size=4096 $SKY_DTBOS || true
           fi
+          [ -s AnyKernel3/dtbo.img ] || rm -f AnyKernel3/dtbo.img
 
           # Collect in-tree and out-of-tree hardware driver modules (.ko)
           mkdir -p AnyKernel3/modules
@@ -222,6 +224,9 @@ jobs:
           sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
           sed -i 's/block=.*/block=auto;/' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
+          if ! grep -q "flash_dtbo" anykernel.sh; then
+            sed -i '/flash_boot/a \    [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
+          fi
           zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
 
       - name: Upload Artifact to GitHub

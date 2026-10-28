@@ -201,6 +201,7 @@ jobs:
           if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
             cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
           fi
+          [ -s AnyKernel3/dtbo.img ] || rm -f AnyKernel3/dtbo.img
           mkdir -p AnyKernel3/modules
           find kernel/out -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
           cd AnyKernel3
@@ -209,6 +210,9 @@ jobs:
           sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
           sed -i 's/block=.*/block=auto;/' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
+          if ! grep -q "flash_dtbo" anykernel.sh; then
+            sed -i '/flash_boot/a \    [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
+          fi
           zip -r9 ../sky-kernel-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
 
       - name: Upload Kernel Artifact & Notify Complete (100%)
