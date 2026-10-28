@@ -43,9 +43,8 @@ jobs:
           mkdir -p .telegram
           cat << 'EOF' > .telegram/tg.sh
           #!/usr/bin/env bash
-          BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-8157097626:AAGt4JlDyTBO-rm5XX9CCycY4ys1RuZKnbU}"
+          BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
           CHAT_ID="${TELEGRAM_CHAT_ID:-${INPUT_TELEGRAM_CHAT_ID}}"
-          CHAT_ID="${CHAT_ID:--1003813498680}"
 
           if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
             echo "Telegram credentials missing, skipping telegram update."
@@ -174,7 +173,7 @@ jobs:
           ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
           make O=out ARCH=arm64 olddefconfig
 
-          echo "Compiling Linux 6.12 Kernel Image & DTBs..."
+          echo "Compiling Linux 6.12 Kernel Image, DTBs & Modules..."
           set -o pipefail
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
@@ -182,7 +181,17 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            Image dtbs 2>&1 | tee make.log
+            Image dtbs modules 2>&1 | tee make.log
+
+          echo "Compiling Xiaomi Out-of-Tree Modules..."
+          make -j$(nproc --all) -C $PWD O=out \
+            M=$(realpath ../sm4450-modules/xiaomi) \
+            ARCH=arm64 \
+            CC=clang \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log || true
 
       - name: Prepare AnyKernel3 Zip (90%)
         env:
@@ -194,14 +203,19 @@ jobs:
           cd workspace
           git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
-          if [ -f kernel/out/arch/arm64/boot/dtbo.img ]; then
-            cp kernel/out/arch/arm64/boot/dtbo.img AnyKernel3/
+
+          # Concatenate base Sky device trees into flat AnyKernel3 dtb file
+          find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
+
+          # Pack compiled Sky DTBO overlays into AnyKernel3 dtbo.img using mkdtboimg.py
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" | tr '\n' ' ')
+          if [ -n "$SKY_DTBOS" ]; then
+            python3 ../scripts/mkdtboimg.py create AnyKernel3/dtbo.img --page_size=4096 $SKY_DTBOS || true
           fi
-          mkdir -p AnyKernel3/dtb
-          find kernel/out/arch/arm64/boot/dts -name "*.dtb" -exec cp {} AnyKernel3/dtb/ \; || true
-          find kernel/out/arch/arm64/boot/dts -name "*.dtbo" -exec cp {} AnyKernel3/dtb/ \; || true
+
+          # Collect in-tree and out-of-tree hardware driver modules (.ko)
           mkdir -p AnyKernel3/modules
-          find kernel/out -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
+          find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
           cd AnyKernel3
           sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 Kernel for Redmi 12 5G/' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
