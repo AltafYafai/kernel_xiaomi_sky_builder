@@ -259,10 +259,7 @@ jobs:
           mkdir -p artifacts
 
           echo "1. Generating header v4 boot-6.12.img..."
-          python3 ../scripts/mkbootimg.py \
-            --header_version 4 \
-            --kernel kernel/out/arch/arm64/boot/Image \
-            --output artifacts/boot-6.12.img
+          bash ../scripts/build_boot.sh kernel/out/arch/arm64/boot/Image artifacts/boot-6.12.img
 
           echo "2. Generating dtbo-6.12.img..."
           SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts \( -name "*sky*.dtbo" -o -name "ravelin-sde.dtbo" \) 2>/dev/null | tr '\n' ' ')
