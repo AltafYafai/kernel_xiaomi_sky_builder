@@ -113,11 +113,11 @@ jobs:
           sudo update-alternatives --install /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-18 100
           sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-18 100
 
-      - name: Setup Ccache Caching
-        uses: actions/cache@v4
+      - name: Restore Ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.sha }}
+          key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-kernel-6.12-ccache-
             ${{ runner.os }}-kernel-ccache-
@@ -166,7 +166,7 @@ jobs:
 
           # Configure ccache for maximum compilation speed
           export CCACHE_DIR="$HOME/.cache/ccache"
-          export CCACHE_MAXSIZE="5G"
+          export CCACHE_MAXSIZE="10G"
           export CCACHE_COMPRESS=1
           export CCACHE_COMPRESSLEVEL=5
           export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
@@ -186,17 +186,17 @@ jobs:
 
           echo "Compiling Linux 6.12 Kernel Image, DTBs & Modules..."
           set -o pipefail
-          make -j$(nproc --all) O=out \
+          make -k -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC="ccache clang" \
             HOSTCC="ccache clang" \
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            Image dtbs modules 2>&1 | tee make.log
+            Image dtbs modules 2>&1 | tee make.log || true
 
           echo "Compiling Xiaomi Out-of-Tree Modules..."
-          make -j$(nproc --all) -C $PWD O=out \
+          make -k -j$(nproc --all) -C $PWD O=out \
             M=$(realpath ../sm4450-modules/xiaomi) \
             ARCH=arm64 \
             CC="ccache clang" \
@@ -208,6 +208,18 @@ jobs:
 
           echo "=== CCACHE STATISTICS ==="
           ccache -s
+
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "ERROR: Kernel Image (out/arch/arm64/boot/Image) was not generated!"
+            exit 1
+          fi
+
+      - name: Save Ccache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.run_id }}
 
       - name: Prepare AnyKernel3 Zip (90%)
         env:
