@@ -70,40 +70,13 @@ jobs:
               $0 start "$TEXT"
             fi
           elif [ "$ACTION" = "send_document" ]; then
-            FILE_PATH="$(realpath "$2")"
+            FILE_PATH="$2"
             CAPTION="$3"
-            if [ ! -f "$FILE_PATH" ]; then
-              echo "Error: File to upload does not exist: $FILE_PATH"
-              exit 1
-            fi
-            FILE_SIZE=$(stat -c%s "$FILE_PATH" 2>/dev/null || wc -c < "$FILE_PATH")
-            echo "Uploading $FILE_PATH ($((FILE_SIZE / 1024 / 1024)) MB) to Telegram..."
-
-            RES=$(curl -s -S \
-              -H "Expect:" \
-              --connect-timeout 60 \
-              --max-time 600 \
-              --retry 3 \
-              --retry-delay 5 \
-              -F "chat_id=${CHAT_ID}" \
+            curl -s -F "chat_id=${CHAT_ID}" \
               -F "document=@${FILE_PATH}" \
               -F "caption=${CAPTION}" \
               -F "parse_mode=HTML" \
-              "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument")
-            echo "Telegram API response: $RES"
-
-            if ! echo "$RES" | grep -q '"ok":true'; then
-              echo "Initial upload failed, retrying without HTML caption formatting..."
-              RES=$(curl -s -S \
-                -H "Expect:" \
-                --connect-timeout 60 \
-                --max-time 600 \
-                -F "chat_id=${CHAT_ID}" \
-                -F "document=@${FILE_PATH}" \
-                -F "caption=$(basename "$FILE_PATH")" \
-                "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument")
-              echo "Fallback Telegram API response: $RES"
-            fi
+              "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" > /dev/null
           fi
           EOF
           chmod +x .telegram/tg.sh
@@ -243,6 +216,20 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             modules 2>&1 | tee -a make.log || true
 
+          echo "Compiling Qualcomm Display Drivers (msm_drm)..."
+          make -k -j$(nproc --all) -C $PWD O=out \
+            M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
+            DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
+            KERNEL_SRC=$PWD \
+            KERNEL_ROOT=$PWD \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log || true
+
           echo "=== CCACHE STATISTICS ==="
           ccache -s
 
@@ -269,46 +256,36 @@ jobs:
           git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
 
+          # Concatenate base Sky device trees into flat AnyKernel3 dtb file
+          find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
+          [ -s AnyKernel3/dtb ] || rm -f AnyKernel3/dtb
+
+          # Pack compiled Sky & SDE DTBO overlays into AnyKernel3 dtbo.img using mkdtboimg.py
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts \( -name "*sky*.dtbo" -o -name "ravelin-sde.dtbo" \) 2>/dev/null | tr '\n' ' ')
+          if [ -n "${SKY_DTBOS// }" ]; then
+            python3 ../scripts/mkdtboimg.py create AnyKernel3/dtbo.img --page_size=4096 $SKY_DTBOS || true
+          fi
+          [ -s AnyKernel3/dtbo.img ] || rm -f AnyKernel3/dtbo.img
+
           # Collect in-tree and out-of-tree hardware driver modules (.ko)
           mkdir -p AnyKernel3/modules
           find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
-          llvm-strip --strip-unneeded AnyKernel3/modules/*.ko 2>/dev/null || true
-
-          NUM_MODULES=$(ls -1 AnyKernel3/modules/*.ko 2>/dev/null | wc -l)
-          echo "=== Collected ${NUM_MODULES} kernel modules into AnyKernel3/modules/ ==="
-          if [ "${NUM_MODULES}" -gt 0 ]; then
-            ls -lh AnyKernel3/modules/
-          else
-            echo "WARNING: No .ko modules were collected!"
-            rmdir AnyKernel3/modules || true
-          fi
           cd AnyKernel3
           sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 Kernel for Redmi 12 5G/' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
-          sed -i 's/^block=.*/block=boot/' anykernel.sh
-          sed -i 's/^is_slot_device=.*/is_slot_device=auto/' anykernel.sh
+          sed -i 's/block=.*/block=auto;/' anykernel.sh
+          sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
+          if ! grep -q "flash_dtbo" anykernel.sh; then
+            sed -i '/## end boot install/i [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
+          fi
           zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
-
-      - name: Build vendor_boot Image (95%)
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
-        run: |
-          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████▌] 95%%0A<b>Step:</b> Repacking vendor_boot.img with 6.12 DTB..." || true
-          ./scripts/build_vendor_boot.sh workspace/kernel/out/arch/arm64/boot/dts workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img
-          cp workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img workspace/vendor_boot.img
-          gzip -k -9 workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img
 
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
           name: sky-kernel-6.12-${{ env.KERNEL_REV }}
-          path: |
-            workspace/sky-kernel-6.12-*.zip
-            workspace/vendor_boot-6.12-*.img
-            workspace/vendor_boot-6.12-*.img.gz
+          path: workspace/sky-kernel-6.12-*.zip
 
       - name: Notify Build Complete (100%)
         env:
@@ -316,18 +293,11 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading artifacts to Telegram..." || true
-          ZIP_FILE=$(find workspace -maxdepth 1 -name "sky-kernel-6.12-*.zip" 2>/dev/null | head -n1)
-          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
-            echo "Found flashable zip: $ZIP_FILE"
-            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip:</b> $(basename "$ZIP_FILE")"
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading zip..." || true
+          ZIP_FILE=$(ls workspace/sky-kernel-6.12-*.zip 2>/dev/null | head -n1)
+          if [ -f "$ZIP_FILE" ]; then
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip:</b> $(basename $ZIP_FILE)" || true
           fi
-          VB_GZ=$(find workspace -maxdepth 1 -name "vendor_boot-6.12-*.img.gz" 2>/dev/null | head -n1)
-          if [ -n "$VB_GZ" ] && [ -f "$VB_GZ" ]; then
-            echo "Found vendor_boot image (compressed): $VB_GZ"
-            ./.telegram/tg.sh send_document "$VB_GZ" "<b>⚡ 6.12 vendor_boot Image (GZ):</b> $(basename "$VB_GZ")"
-          fi
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Artifacts delivered." || true
 
       - name: Handle Build Failure
         if: failure()
