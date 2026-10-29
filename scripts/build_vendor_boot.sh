@@ -2,50 +2,137 @@
 set -e
 
 DTB_DIR="$1"
-OUTPUT_IMG="${2:-vendor_boot.img}"
+MODULES_DIR="$2"
+OUTPUT_IMG="${3:-vendor_boot.img}"
+BASE_VB="${4:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_VB="/tmp/base_vendor_boot.img"
 
-if [ ! -f "$BASE_VB" ]; then
-    echo "Downloading reference base vendor_boot.img..."
-    curl -sL "https://github.com/AltafYafai/OrangeFox-Builder-Sky/releases/download/20261019-39267552832/vendor_boot.img" -o "$BASE_VB"
+# Resolve base vendor_boot.img
+if [ -z "$BASE_VB" ] || [ ! -f "$BASE_VB" ]; then
+    if [ -f "/home/altaf/6.12/vendor_boot.img" ]; then
+        BASE_VB="/home/altaf/6.12/vendor_boot.img"
+    elif [ -f "/tmp/base_vendor_boot.img" ]; then
+        BASE_VB="/tmp/base_vendor_boot.img"
+    else
+        BASE_VB="/tmp/base_vendor_boot.img"
+        echo "Attempting to download LineageOS reference vendor_boot.img..."
+        gh release download lineageos-24.0-reference -p "vendor_boot.img" -O "$BASE_VB" -R AltafYafai/kernel_xiaomi_sky_builder 2>/dev/null || \
+        curl -sL "https://github.com/AltafYafai/OrangeFox-Builder-Sky/releases/download/20261019-39267552832/vendor_boot.img" -o "$BASE_VB"
+    fi
 fi
 
-echo "Unpacking base vendor_boot.img..."
-rm -rf /tmp/vb_unpack
+echo "Using base vendor_boot: $BASE_VB"
+rm -rf /tmp/vb_unpack /tmp/rd00_work
 mkdir -p /tmp/vb_unpack
-python3 "$SCRIPT_DIR/unpack_bootimg.py" --boot_img "$BASE_VB" --out /tmp/vb_unpack > /dev/null
 
-echo "Collecting compiled Sky 6.12 DTBs..."
-SKY_DTBS=$(find "$DTB_DIR" -name "*sky*base.dtb" 2>/dev/null | sort -r | tr '\n' ' ')
-if [ -z "${SKY_DTBS// }" ]; then
-    echo "Warning: No sky base dtb found in $DTB_DIR, keeping base dtb"
+# Unpack base vendor_boot
+python3 "$SCRIPT_DIR/unpack_bootimg.py" --boot_img "$BASE_VB" --out /tmp/vb_unpack > /tmp/vb_unpack/info.txt
+cat /tmp/vb_unpack/info.txt
+
+# Extract base parameters
+KERNEL_ADDR=$(grep "kernel load address:" /tmp/vb_unpack/info.txt | awk '{print $NF}')
+RAMDISK_ADDR=$(grep "ramdisk load address:" /tmp/vb_unpack/info.txt | awk '{print $NF}')
+TAGS_ADDR=$(grep "kernel tags load address:" /tmp/vb_unpack/info.txt | awk '{print $NF}')
+DTB_ADDR=$(grep "dtb address:" /tmp/vb_unpack/info.txt | awk '{print $NF}')
+PAGE_SIZE=$(grep "page size:" /tmp/vb_unpack/info.txt | awk '{print $NF}')
+CMDLINE=$(grep "vendor command line args:" /tmp/vb_unpack/info.txt | sed 's/vendor command line args: //')
+
+echo "Base parameters parsed:"
+echo "  KERNEL_ADDR:  $KERNEL_ADDR"
+echo "  RAMDISK_ADDR: $RAMDISK_ADDR"
+echo "  TAGS_ADDR:    $TAGS_ADDR"
+echo "  DTB_ADDR:     $DTB_ADDR"
+echo "  PAGE_SIZE:    $PAGE_SIZE"
+echo "  CMDLINE:      $CMDLINE"
+
+# Process DTB
+echo "Processing DTB..."
+if [ -n "$DTB_DIR" ] && [ -d "$DTB_DIR" ]; then
+    SKY_DTBS=$(find "$DTB_DIR" -name "*sky*base.dtb" 2>/dev/null | sort -r | tr '\n' ' ')
+    if [ -z "${SKY_DTBS// }" ]; then
+        echo "Warning: No sky base dtb found in $DTB_DIR, keeping base dtb"
+    else
+        cat $SKY_DTBS > /tmp/vb_unpack/dtb
+        echo "Compiled DTB size: $(wc -c < /tmp/vb_unpack/dtb) bytes"
+    fi
 else
-    cat $SKY_DTBS > /tmp/vb_unpack/dtb
-    echo "Compiled DTB size: $(wc -c < /tmp/vb_unpack/dtb) bytes"
+    echo "Keeping base DTB"
 fi
 
-echo "Repacking vendor_boot.img with 6.12 DTB..."
-python3 "$SCRIPT_DIR/mkbootimg.py" \
-  --header_version 4 \
-  --pagesize 0x00001000 \
-  --base 0x00000000 \
-  --kernel_offset 0x10008000 \
-  --ramdisk_offset 0x11000000 \
-  --tags_offset 0x10000100 \
-  --dtb_offset 0x0000000011f00000 \
-  --vendor_cmdline "androidboot.selinux=permissive buildvariant=eng" \
-  --board "" \
-  --dtb /tmp/vb_unpack/dtb \
-  --vendor_bootconfig /tmp/vb_unpack/bootconfig \
-  --ramdisk_type 1 \
-  --ramdisk_name "" \
-  --vendor_ramdisk_fragment /tmp/vb_unpack/vendor_ramdisk00 \
-  --ramdisk_type 2 \
-  --ramdisk_name recovery \
-  --vendor_ramdisk_fragment /tmp/vb_unpack/vendor_ramdisk01 \
-  --vendor_boot "$OUTPUT_IMG"
+# Extract and patch vendor_ramdisk00
+echo "Extracting vendor ramdisk 0 (Fragment 0)..."
+python3 "$SCRIPT_DIR/lz4cpio.py" extract /tmp/vb_unpack/vendor_ramdisk00 /tmp/rd00_work
+
+if [ -n "$MODULES_DIR" ] && [ -d "$MODULES_DIR" ]; then
+    echo "Injecting newly compiled 6.12 modules from $MODULES_DIR..."
+    find "$MODULES_DIR" -name "*.ko" | while read -r ko; do
+        llvm-strip --strip-debug "$ko" 2>/dev/null || true
+        modname=$(basename "$ko")
+        echo "Injecting: $modname"
+        cp -f "$ko" "/tmp/rd00_work/lib/modules/$modname"
+    done
+
+    # Ensure compatibility aliases for Parrot / Ravelin hardware
+    if [ -f "/tmp/rd00_work/lib/modules/pinctrl-sm4450.ko" ]; then
+        cp -f "/tmp/rd00_work/lib/modules/pinctrl-sm4450.ko" "/tmp/rd00_work/lib/modules/pinctrl-parrot.ko"
+        cp -f "/tmp/rd00_work/lib/modules/pinctrl-sm4450.ko" "/tmp/rd00_work/lib/modules/pinctrl-ravelin.ko"
+    fi
+    if [ -f "/tmp/rd00_work/lib/modules/gcc-sm4450.ko" ]; then
+        cp -f "/tmp/rd00_work/lib/modules/gcc-sm4450.ko" "/tmp/rd00_work/lib/modules/gcc-parrot.ko"
+    fi
+    if [ -f "/tmp/rd00_work/lib/modules/dispcc-sm4450.ko" ]; then
+        cp -f "/tmp/rd00_work/lib/modules/dispcc-sm4450.ko" "/tmp/rd00_work/lib/modules/dispcc-parrot.ko"
+    fi
+    if [ -f "/tmp/rd00_work/lib/modules/camcc-sm4450.ko" ]; then
+        cp -f "/tmp/rd00_work/lib/modules/camcc-sm4450.ko" "/tmp/rd00_work/lib/modules/camcc-parrot.ko"
+    fi
+    if [ -f "/tmp/rd00_work/lib/modules/gpucc-sm4450.ko" ]; then
+        cp -f "/tmp/rd00_work/lib/modules/gpucc-sm4450.ko" "/tmp/rd00_work/lib/modules/gpucc-parrot.ko"
+    fi
+
+    echo "Repacking updated vendor ramdisk 0..."
+    python3 "$SCRIPT_DIR/lz4cpio.py" pack /tmp/rd00_work /tmp/vb_unpack/ramdisk00_updated.cpio
+    lz4 -l -12 /tmp/vb_unpack/ramdisk00_updated.cpio /tmp/vb_unpack/vendor_ramdisk00
+fi
+
+# Build arguments for mkbootimg.py
+MKBOOT_ARGS=(
+    --header_version 4
+    --pagesize "${PAGE_SIZE:-0x00001000}"
+    --base 0x00000000
+    --kernel_offset "${KERNEL_ADDR:-0x00008000}"
+    --ramdisk_offset "${RAMDISK_ADDR:-0x01000000}"
+    --tags_offset "${TAGS_ADDR:-0x00000100}"
+    --dtb_offset "${DTB_ADDR:-0x0000000001f00000}"
+    --vendor_cmdline "$CMDLINE"
+    --board ""
+    --dtb /tmp/vb_unpack/dtb
+    --ramdisk_type 1
+    --ramdisk_name ""
+    --vendor_ramdisk_fragment /tmp/vb_unpack/vendor_ramdisk00
+    --vendor_boot "$OUTPUT_IMG"
+)
+
+if [ -s /tmp/vb_unpack/bootconfig ]; then
+    MKBOOT_ARGS+=(--vendor_bootconfig /tmp/vb_unpack/bootconfig)
+fi
+
+# If Fragment 1 exists (e.g. OrangeFox recovery ramdisk), preserve it!
+if [ -f /tmp/vb_unpack/vendor_ramdisk01 ]; then
+    echo "Preserving secondary ramdisk fragment (recovery)..."
+    MKBOOT_ARGS+=(
+        --ramdisk_type 2
+        --ramdisk_name recovery
+        --vendor_ramdisk_fragment /tmp/vb_unpack/vendor_ramdisk01
+    )
+fi
+
+echo "Repacking vendor_boot.img with mkbootimg.py..."
+python3 "$SCRIPT_DIR/mkbootimg.py" "${MKBOOT_ARGS[@]}"
 
 truncate -s 100663296 "$OUTPUT_IMG"
 echo "vendor_boot.img generated successfully at $OUTPUT_IMG ($(ls -lh "$OUTPUT_IMG" | awk '{print $5}'))"
+
+echo "Verifying generated vendor_boot structure..."
+python3 "$SCRIPT_DIR/vbparse.py" "$OUTPUT_IMG"

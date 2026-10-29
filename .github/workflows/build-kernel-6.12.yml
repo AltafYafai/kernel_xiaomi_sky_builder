@@ -102,7 +102,7 @@ jobs:
             git ccache libssl-dev bison flex libelf-dev libdw-dev build-essential zip curl \
             libncurses-dev bc python3 python3-pip rsync u-boot-tools \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            clang-18 lld-18 llvm-18 jq
+            clang-18 lld-18 llvm-18 jq lz4 cpio kmod
 
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
@@ -246,47 +246,116 @@ jobs:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.run_id }}
 
-      - name: Prepare AnyKernel3 Zip (90%)
+      - name: Package Boot, Vendor Boot & DTBO Images (85%)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████░] 90%%0A<b>Step:</b> Packaging AnyKernel3 Flashable Zip..." || true
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [████████░░] 85%%0A<b>Step:</b> Building boot, vendor_boot, and dtbo images..." || true
+          cd workspace
+          mkdir -p artifacts
+
+          echo "1. Generating header v4 boot-6.12.img..."
+          python3 ../scripts/mkbootimg.py \
+            --header_version 4 \
+            --kernel kernel/out/arch/arm64/boot/Image \
+            --output artifacts/boot-6.12.img
+
+          echo "2. Generating dtbo-6.12.img..."
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts \( -name "*sky*.dtbo" -o -name "ravelin-sde.dtbo" \) 2>/dev/null | tr '\n' ' ')
+          if [ -n "${SKY_DTBOS// }" ]; then
+            python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS || true
+          fi
+
+          echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
+          bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts kernel/out artifacts/vendor_boot-6.12.img
+
+          ls -lh artifacts/
+
+      - name: Prepare AnyKernel3 Zip & Fastboot Bundle (95%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████░] 95%%0A<b>Step:</b> Packaging AnyKernel3 & Fastboot flashables..." || true
           cd workspace
           git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
-          cp kernel/out/arch/arm64/boot/Image AnyKernel3/
 
-          # Concatenate base Sky device trees into flat AnyKernel3 dtb file
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/
+          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img AnyKernel3/dtbo.img
+          [ -f artifacts/vendor_boot-6.12.img ] && cp artifacts/vendor_boot-6.12.img AnyKernel3/vendor_boot.img
+
+          # Flatten base Sky device trees
           find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
           [ -s AnyKernel3/dtb ] || rm -f AnyKernel3/dtb
 
-          # Pack compiled Sky & SDE DTBO overlays into AnyKernel3 dtbo.img using mkdtboimg.py
-          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts \( -name "*sky*.dtbo" -o -name "ravelin-sde.dtbo" \) 2>/dev/null | tr '\n' ' ')
-          if [ -n "${SKY_DTBOS// }" ]; then
-            python3 ../scripts/mkdtboimg.py create AnyKernel3/dtbo.img --page_size=4096 $SKY_DTBOS || true
-          fi
-          [ -s AnyKernel3/dtbo.img ] || rm -f AnyKernel3/dtbo.img
-
-          # Collect in-tree and out-of-tree hardware driver modules (.ko)
+          # Collect all compiled hardware modules (.ko)
           mkdir -p AnyKernel3/modules
           find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
+          llvm-strip --strip-debug AnyKernel3/modules/*.ko 2>/dev/null || true
+
           cd AnyKernel3
-          sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 Kernel for Redmi 12 5G/' anykernel.sh
+          sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 LTS Kernel for Redmi 12 5G/' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
-          sed -i 's/block=.*/block=auto;/' anykernel.sh
+          sed -i 's/block=.*/block=boot;/' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
+
+          # Inject flash_generic vendor_boot and flash_dtbo triggers
+          if ! grep -q "flash_generic vendor_boot" anykernel.sh; then
+            sed -i '/## end boot install/i [ -f vendor_boot.img ] \&\& flash_generic vendor_boot' anykernel.sh
+          fi
           if ! grep -q "flash_dtbo" anykernel.sh; then
             sed -i '/## end boot install/i [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
           fi
-          zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
 
-      - name: Upload Artifact to GitHub
+          zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
+          cd ..
+
+          # Create Fastboot flashing package
+          mkdir -p fastboot_bundle
+          cp artifacts/boot-6.12.img fastboot_bundle/boot.img
+          cp artifacts/vendor_boot-6.12.img fastboot_bundle/vendor_boot.img
+          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img fastboot_bundle/dtbo.img
+
+          cat << 'EOF' > fastboot_bundle/flash.sh
+          #!/usr/bin/env bash
+          set -e
+          echo "=== Flashing Sky Linux 6.12 Kernel ==="
+          fastboot flash boot boot.img
+          fastboot flash vendor_boot vendor_boot.img
+          [ -f dtbo.img ] && fastboot flash dtbo dtbo.img
+          echo "=== Flashing Complete! Rebooting... ==="
+          fastboot reboot
+          EOF
+          chmod +x fastboot_bundle/flash.sh
+
+          cat << 'EOF' > fastboot_bundle/flash.bat
+          @echo off
+          echo === Flashing Sky Linux 6.12 Kernel ===
+          fastboot flash boot boot.img
+          fastboot flash vendor_boot vendor_boot.img
+          if exist dtbo.img fastboot flash dtbo dtbo.img
+          echo === Flashing Complete! Rebooting... ===
+          fastboot reboot
+          EOF
+
+          cd fastboot_bundle
+          zip -r9 ../sky-fastboot-6.12-${{ env.KERNEL_REV }}.zip *
+          cd ..
+
+          cp artifacts/*.img .
+
+      - name: Upload Artifacts to GitHub
         uses: actions/upload-artifact@v4
         with:
           name: sky-kernel-6.12-${{ env.KERNEL_REV }}
-          path: workspace/sky-kernel-6.12-*.zip
+          path: |
+            workspace/sky-kernel-6.12-*.zip
+            workspace/sky-fastboot-6.12-*.zip
+            workspace/*.img
 
       - name: Notify Build Complete (100%)
         env:
@@ -294,10 +363,14 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading zip..." || true
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading packages..." || true
           ZIP_FILE=$(ls workspace/sky-kernel-6.12-*.zip 2>/dev/null | head -n1)
           if [ -f "$ZIP_FILE" ]; then
-            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip:</b> $(basename $ZIP_FILE)" || true
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable Recovery Zip:</b> $(basename $ZIP_FILE)" || true
+          fi
+          FASTBOOT_ZIP=$(ls workspace/sky-fastboot-6.12-*.zip 2>/dev/null | head -n1)
+          if [ -f "$FASTBOOT_ZIP" ]; then
+            ./.telegram/tg.sh send_document "$FASTBOOT_ZIP" "<b>⚡ Fastboot Flash Package:</b> $(basename $FASTBOOT_ZIP)" || true
           fi
 
       - name: Handle Build Failure
@@ -318,9 +391,9 @@ jobs:
           echo -e "\n=== ERROR DETAILS ===" >> "$LOG_FILE"
           
           if [ -f workspace/kernel/make.log ]; then
-            tail -n 200 workspace/kernel/make.log >> "$LOG_FILE"
+            tail -n 250 workspace/kernel/make.log >> "$LOG_FILE"
           elif [ -f workspace/kernel/out/make.log ]; then
-            tail -n 200 workspace/kernel/out/make.log >> "$LOG_FILE"
+            tail -n 250 workspace/kernel/out/make.log >> "$LOG_FILE"
           else
             echo "Step failed before compilation log creation." >> "$LOG_FILE"
           fi
