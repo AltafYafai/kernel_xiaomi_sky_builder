@@ -290,11 +290,25 @@ jobs:
           sed -i 's/^is_slot_device=.*/is_slot_device=auto/' anykernel.sh
           zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
 
+      - name: Build vendor_boot Image (95%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████▌] 95%%0A<b>Step:</b> Repacking vendor_boot.img with 6.12 DTB..." || true
+          ./scripts/build_vendor_boot.sh workspace/kernel/out/arch/arm64/boot/dts workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img
+          cp workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img workspace/vendor_boot.img
+          gzip -k -9 workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img
+
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
           name: sky-kernel-6.12-${{ env.KERNEL_REV }}
-          path: workspace/sky-kernel-6.12-*.zip
+          path: |
+            workspace/sky-kernel-6.12-*.zip
+            workspace/vendor_boot-6.12-*.img
+            workspace/vendor_boot-6.12-*.img.gz
 
       - name: Notify Build Complete (100%)
         env:
@@ -302,16 +316,18 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading zip to Telegram..." || true
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading artifacts to Telegram..." || true
           ZIP_FILE=$(find workspace -maxdepth 1 -name "sky-kernel-6.12-*.zip" 2>/dev/null | head -n1)
           if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
             echo "Found flashable zip: $ZIP_FILE"
             ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip:</b> $(basename "$ZIP_FILE")"
-            ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Flashable zip delivered." || true
-          else
-            echo "Error: Flashable zip not found in workspace!"
-            ./.telegram/tg.sh update "<b>⚠️ Xiaomi Sky Linux 6.12 Build Completed</b>%0A%0A<b>Warning:</b> Flashable zip not found for Telegram upload!" || true
           fi
+          VB_GZ=$(find workspace -maxdepth 1 -name "vendor_boot-6.12-*.img.gz" 2>/dev/null | head -n1)
+          if [ -n "$VB_GZ" ] && [ -f "$VB_GZ" ]; then
+            echo "Found vendor_boot image (compressed): $VB_GZ"
+            ./.telegram/tg.sh send_document "$VB_GZ" "<b>⚡ 6.12 vendor_boot Image (GZ):</b> $(basename "$VB_GZ")"
+          fi
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Artifacts delivered." || true
 
       - name: Handle Build Failure
         if: failure()
