@@ -93,7 +93,7 @@ if [ -n "$MODULES_DIR" ] && [ -d "$MODULES_DIR" ]; then
 
     echo "Repacking updated vendor ramdisk 0..."
     python3 "$SCRIPT_DIR/lz4cpio.py" pack /tmp/rd00_work /tmp/vb_unpack/ramdisk00_updated.cpio
-    lz4 -l -12 /tmp/vb_unpack/ramdisk00_updated.cpio /tmp/vb_unpack/vendor_ramdisk00
+    lz4 -f -l -12 /tmp/vb_unpack/ramdisk00_updated.cpio /tmp/vb_unpack/vendor_ramdisk00
 fi
 
 # Build arguments for mkbootimg.py
