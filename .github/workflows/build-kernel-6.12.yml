@@ -175,8 +175,21 @@ jobs:
           # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
           echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
           cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
+
+          # Append unconditional Sky DTB targets to arch/arm64/boot/dts/qcom/Makefile
+          cat << 'DTB_EOF' >> arch/arm64/boot/dts/qcom/Makefile
+
+# Unconditional targets for Xiaomi Sky (Redmi 12 5G / POCO M6 Pro 5G)
+DTC_FLAGS += -@
+dtb-y += ravelin-sky-base.dtb
+dtb-y += ravelin-sky-4gb-base.dtb
+dtb-y += ravelin-sky-overlay.dtbo
+dtb-y += ravelin-sky-4gb-overlay.dtbo
+DTB_EOF
+
+          # Ensure arch/arm64/boot/dts/Makefile descends into qcom
+          echo 'subdir-y += qcom' > arch/arm64/boot/dts/Makefile
           rm -rf arch/arm64/boot/dts/vendor
-          cp -r ../sm4450-devicetrees arch/arm64/boot/dts/vendor
 
           mkdir -p out
           echo "Configuring gki_defconfig..."
@@ -197,6 +210,15 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             DTC_FLAGS="-@" \
             Image dtbs 2>&1 | tee make.log
+
+          echo "=== Verifying DTB Compilation ==="
+          ls -la out/arch/arm64/boot/dts/qcom/*sky* 2>/dev/null || true
+          if [ ! -f out/arch/arm64/boot/dts/qcom/ravelin-sky-base.dtb ]; then
+            echo "FATAL ERROR: out/arch/arm64/boot/dts/qcom/ravelin-sky-base.dtb was not compiled!"
+            echo "Printing make.log DTB section:"
+            grep -E "DTC|dtb|DTS|error" make.log | tail -n 50
+            exit 1
+          fi
 
           echo "Compiling Linux 6.12 In-Tree Modules..."
           make -k -j$(nproc --all) O=out \
@@ -276,7 +298,7 @@ jobs:
           fi
 
           echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
-          bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts kernel/out artifacts/vendor_boot-6.12.img
+          bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
 
           ls -lh artifacts/
 
