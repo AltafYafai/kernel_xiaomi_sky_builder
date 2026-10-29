@@ -31,15 +31,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 8192
-          temp-reserve-mb: 2048
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
 
       - name: Checkout Builder Repo
         uses: actions/checkout@v4
@@ -112,6 +106,14 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git ccache libssl-dev bison flex libelf-dev build-essential zip curl libncurses-dev bc python3 python3-pip openjdk-11-jdk rsync u-boot-tools gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi jq
 
+      - name: Setup Ccache Caching
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-kernel-ccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-kernel-ccache-
+
       - name: Set up build environment directory
         run: |
           mkdir -p workspace
@@ -177,16 +179,28 @@ jobs:
           export KBUILD_BUILD_HOST=GitHub-Actions
           export KBUILD_BUILD_USER=AltafYafai
 
+          # Configure ccache for maximum compilation speed
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          export CCACHE_MAXSIZE="5G"
+          export CCACHE_COMPRESS=1
+          export CCACHE_COMPRESSLEVEL=5
+          export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
+          ccache -z
+
           make O=out ARCH=arm64 gki_defconfig
           ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
           make O=out ARCH=arm64 olddefconfig
           make -j$(nproc --all) O=out \
             ARCH=arm64 \
-            CC=clang \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- 2>&1 | tee make.log
+
+          echo "=== CCACHE STATISTICS ==="
+          ccache -s
 
       - name: Prepare AnyKernel3 Zip (90%)
         env:
