@@ -178,11 +178,11 @@ jobs:
 
           mkdir -p out
           echo "Configuring gki_defconfig..."
-          make O=out ARCH=arm64 gki_defconfig
+          make O=out ARCH=arm64 LLVM=1 gki_defconfig
 
           echo "Merging vendor sky_GKI.config..."
           ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
-          make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 LLVM=1 olddefconfig
 
           echo "Compiling Linux 6.12 Kernel Image, DTBs & Modules..."
           set -o pipefail
