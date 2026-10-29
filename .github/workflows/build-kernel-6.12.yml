@@ -1,4 +1,4 @@
-name: Build Xiaomi Sky Kernel 6.12 (lineage-24.0-6.12)
+name: Build Xiaomi Sky Kernel 6.12 (bare-6.12)
 
 on:
   workflow_dispatch:
@@ -6,15 +6,15 @@ on:
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'lineage-24.0-6.12'
+        default: 'bare-6.12'
       DEVICETREES_BRANCH:
         description: 'Devicetrees Source Branch'
         required: true
-        default: 'lineage-24.0-6.12'
+        default: 'bare-6.12'
       MODULES_BRANCH:
         description: 'Modules Source Branch'
         required: true
-        default: 'lineage-24.0-6.12'
+        default: 'bare-6.12'
       TELEGRAM_CHAT_ID:
         description: 'Telegram Chat ID (optional)'
         required: false
@@ -266,29 +266,17 @@ jobs:
         run: |
           ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████░] 90%%0A<b>Step:</b> Packaging AnyKernel3 Flashable Zip..." || true
           cd workspace
-          git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
+          git clone --depth=1 -b bare-6.12 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3 || git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
 
-          # Collect in-tree and out-of-tree hardware driver modules (.ko)
-          mkdir -p AnyKernel3/modules
-          find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
-          llvm-strip --strip-unneeded AnyKernel3/modules/*.ko 2>/dev/null || true
-
-          NUM_MODULES=$(ls -1 AnyKernel3/modules/*.ko 2>/dev/null | wc -l)
-          echo "=== Collected ${NUM_MODULES} kernel modules into AnyKernel3/modules/ ==="
-          if [ "${NUM_MODULES}" -gt 0 ]; then
-            ls -lh AnyKernel3/modules/
-          else
-            echo "WARNING: No .ko modules were collected!"
-            rmdir AnyKernel3/modules || true
-          fi
           cd AnyKernel3
-          sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 Kernel for Redmi 12 5G/' anykernel.sh
+          sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 Bare-Boot Kernel/' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
           sed -i 's/^block=.*/block=boot/' anykernel.sh
           sed -i 's/^is_slot_device=.*/is_slot_device=auto/' anykernel.sh
-          zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
+          sed -i 's/^do.modules=.*/do.modules=0/' anykernel.sh
+          zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md modules\*
 
       - name: Build vendor_boot Image (95%)
         env:
@@ -309,6 +297,7 @@ jobs:
             workspace/sky-kernel-6.12-*.zip
             workspace/vendor_boot-6.12-*.img
             workspace/vendor_boot-6.12-*.img.gz
+            workspace/vbmeta_disabled.img
 
       - name: Notify Build Complete (100%)
         env:
@@ -316,18 +305,22 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading artifacts to Telegram..." || true
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Bare-Boot Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading artifacts to Telegram..." || true
           ZIP_FILE=$(find workspace -maxdepth 1 -name "sky-kernel-6.12-*.zip" 2>/dev/null | head -n1)
           if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
             echo "Found flashable zip: $ZIP_FILE"
-            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip:</b> $(basename "$ZIP_FILE")"
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip (Bare):</b> $(basename "$ZIP_FILE")"
           fi
           VB_GZ=$(find workspace -maxdepth 1 -name "vendor_boot-6.12-*.img.gz" 2>/dev/null | head -n1)
           if [ -n "$VB_GZ" ] && [ -f "$VB_GZ" ]; then
             echo "Found vendor_boot image (compressed): $VB_GZ"
             ./.telegram/tg.sh send_document "$VB_GZ" "<b>⚡ 6.12 vendor_boot Image (GZ):</b> $(basename "$VB_GZ")"
           fi
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Artifacts delivered." || true
+          if [ -f workspace/vbmeta_disabled.img ]; then
+            echo "Found vbmeta_disabled.img"
+            ./.telegram/tg.sh send_document "workspace/vbmeta_disabled.img" "<b>🛡️ VBMeta AVB-Disabled Image:</b> vbmeta_disabled.img (flash via: fastboot flash vbmeta vbmeta_disabled.img)"
+          fi
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Bare-Boot Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Artifacts delivered." || true
 
       - name: Handle Build Failure
         if: failure()
