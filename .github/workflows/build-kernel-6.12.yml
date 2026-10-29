@@ -248,6 +248,10 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             modules 2>&1 | tee -a make.log || true
 
+          echo "=== COMPILED MODULES COUNT ==="
+          find out ../sm4450-modules -name "*.ko" | wc -l
+          find out ../sm4450-modules -name "*.ko" | head -n 30 || true
+
           echo "=== CCACHE STATISTICS ==="
           ccache -s
 
