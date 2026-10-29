@@ -278,16 +278,28 @@ jobs:
           sed -i 's/^do.modules=.*/do.modules=0/' anykernel.sh
           zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md modules\*
 
-      - name: Build vendor_boot Image (95%)
+      - name: Build vendor_boot, boot, and dtbo Images (95%)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████▌] 95%%0A<b>Step:</b> Repacking vendor_boot.img with 6.12 DTB..." || true
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████▌] 95%%0A<b>Step:</b> Repacking vendor_boot, boot, and dtbo images..." || true
           ./scripts/build_vendor_boot.sh workspace/kernel/out/arch/arm64/boot/dts workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img
           cp workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img workspace/vendor_boot.img
           gzip -k -9 workspace/vendor_boot-6.12-${{ env.KERNEL_REV }}.img
+
+          echo "Packaging standalone boot-6.12.img..."
+          python3 scripts/mkbootimg.py \
+            --header_version 4 \
+            --kernel workspace/kernel/out/arch/arm64/boot/Image \
+            --output workspace/boot-6.12-${{ env.KERNEL_REV }}.img
+
+          echo "Packaging dtbo-6.12.img from compiled overlays..."
+          SKY_DTBOS=$(find workspace/kernel/out/arch/arm64/boot/dts/vendor -name "*sky*overlay*.dtbo" 2>/dev/null | sort)
+          if [ -n "$SKY_DTBOS" ]; then
+            python3 scripts/mkdtboimg.py create workspace/dtbo-6.12-${{ env.KERNEL_REV }}.img --page_size=4096 $SKY_DTBOS
+          fi
 
       - name: Upload Artifact to GitHub
         uses: actions/upload-artifact@v4
@@ -295,8 +307,10 @@ jobs:
           name: sky-kernel-6.12-${{ env.KERNEL_REV }}
           path: |
             workspace/sky-kernel-6.12-*.zip
+            workspace/boot-6.12-*.img
             workspace/vendor_boot-6.12-*.img
             workspace/vendor_boot-6.12-*.img.gz
+            workspace/dtbo-6.12-*.img
             workspace/vbmeta_disabled.img
 
       - name: Notify Build Complete (100%)
@@ -311,10 +325,20 @@ jobs:
             echo "Found flashable zip: $ZIP_FILE"
             ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable 6.12 Kernel Zip (Bare):</b> $(basename "$ZIP_FILE")"
           fi
+          BOOT_IMG=$(find workspace -maxdepth 1 -name "boot-6.12-*.img" 2>/dev/null | head -n1)
+          if [ -n "$BOOT_IMG" ] && [ -f "$BOOT_IMG" ]; then
+            echo "Found boot.img: $BOOT_IMG"
+            ./.telegram/tg.sh send_document "$BOOT_IMG" "<b>🚀 Standalone 6.12 boot.img:</b> $(basename "$BOOT_IMG")"
+          fi
           VB_GZ=$(find workspace -maxdepth 1 -name "vendor_boot-6.12-*.img.gz" 2>/dev/null | head -n1)
           if [ -n "$VB_GZ" ] && [ -f "$VB_GZ" ]; then
             echo "Found vendor_boot image (compressed): $VB_GZ"
             ./.telegram/tg.sh send_document "$VB_GZ" "<b>⚡ 6.12 vendor_boot Image (GZ):</b> $(basename "$VB_GZ")"
+          fi
+          DTBO_IMG=$(find workspace -maxdepth 1 -name "dtbo-6.12-*.img" 2>/dev/null | head -n1)
+          if [ -n "$DTBO_IMG" ] && [ -f "$DTBO_IMG" ]; then
+            echo "Found dtbo image: $DTBO_IMG"
+            ./.telegram/tg.sh send_document "$DTBO_IMG" "<b>🌿 6.12 dtbo Image:</b> $(basename "$DTBO_IMG")"
           fi
           if [ -f workspace/vbmeta_disabled.img ]; then
             echo "Found vbmeta_disabled.img"
