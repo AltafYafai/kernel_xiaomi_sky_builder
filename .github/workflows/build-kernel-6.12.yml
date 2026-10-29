@@ -177,15 +177,7 @@ jobs:
           cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
 
           # Append unconditional Sky DTB targets to arch/arm64/boot/dts/qcom/Makefile
-          cat << 'DTB_EOF' >> arch/arm64/boot/dts/qcom/Makefile
-
-# Unconditional targets for Xiaomi Sky (Redmi 12 5G / POCO M6 Pro 5G)
-DTC_FLAGS += -@
-dtb-y += ravelin-sky-base.dtb
-dtb-y += ravelin-sky-4gb-base.dtb
-dtb-y += ravelin-sky-overlay.dtbo
-dtb-y += ravelin-sky-4gb-overlay.dtbo
-DTB_EOF
+          printf "\n# Unconditional targets for Xiaomi Sky\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb\ndtb-y += ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo\ndtb-y += ravelin-sky-4gb-overlay.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
 
           # Ensure arch/arm64/boot/dts/Makefile descends into qcom
           echo 'subdir-y += qcom' > arch/arm64/boot/dts/Makefile
