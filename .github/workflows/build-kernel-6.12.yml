@@ -354,12 +354,26 @@ jobs:
 
       - name: Upload Artifacts to GitHub
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: sky-kernel-6.12-${{ env.KERNEL_REV }}
           path: |
             workspace/sky-kernel-6.12-*.zip
             workspace/sky-fastboot-6.12-*.zip
             workspace/*.img
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+        run: |
+          TAG_NAME="sky-6.12-${{ env.KERNEL_REV }}-$(date +%Y%m%d-%H%M)"
+          echo "Publishing GitHub release $TAG_NAME..."
+          gh release create "$TAG_NAME" \
+            workspace/sky-kernel-6.12-*.zip \
+            workspace/sky-fastboot-6.12-*.zip \
+            workspace/*.img \
+            --title "Sky Linux 6.12 Kernel ($TAG_NAME)" \
+            --notes "Linux 6.12 GKI LTS build for Xiaomi Redmi 12 5G / POCO M6 Pro 5G (sky). Includes AnyKernel3 recovery zip, 1-click Fastboot bundle, boot, vendor_boot (with 6.12 modules and DTBs), and dtbo images." || true
 
       - name: Notify Build Complete (100%)
         env:
