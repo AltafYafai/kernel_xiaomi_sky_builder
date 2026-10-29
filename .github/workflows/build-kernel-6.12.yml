@@ -256,6 +256,16 @@ jobs:
           # Collect in-tree and out-of-tree hardware driver modules (.ko)
           mkdir -p AnyKernel3/modules
           find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
+          llvm-strip --strip-unneeded AnyKernel3/modules/*.ko 2>/dev/null || true
+
+          NUM_MODULES=$(ls -1 AnyKernel3/modules/*.ko 2>/dev/null | wc -l)
+          echo "=== Collected ${NUM_MODULES} kernel modules into AnyKernel3/modules/ ==="
+          if [ "${NUM_MODULES}" -gt 0 ]; then
+            ls -lh AnyKernel3/modules/
+          else
+            echo "WARNING: No .ko modules were collected!"
+            rmdir AnyKernel3/modules || true
+          fi
           cd AnyKernel3
           sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 Kernel for Redmi 12 5G/' anykernel.sh
           sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
