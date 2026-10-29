@@ -76,13 +76,40 @@ jobs:
               $0 start "$TEXT"
             fi
           elif [ "$ACTION" = "send_document" ]; then
-            FILE_PATH="$2"
+            FILE_PATH="$(realpath "$2")"
             CAPTION="$3"
-            curl -s -F "chat_id=${CHAT_ID}" \
+            if [ ! -f "$FILE_PATH" ]; then
+              echo "Error: File to upload does not exist: $FILE_PATH"
+              exit 1
+            fi
+            FILE_SIZE=$(stat -c%s "$FILE_PATH" 2>/dev/null || wc -c < "$FILE_PATH")
+            echo "Uploading $FILE_PATH ($((FILE_SIZE / 1024 / 1024)) MB) to Telegram..."
+
+            RES=$(curl -s -S \
+              -H "Expect:" \
+              --connect-timeout 60 \
+              --max-time 600 \
+              --retry 3 \
+              --retry-delay 5 \
+              -F "chat_id=${CHAT_ID}" \
               -F "document=@${FILE_PATH}" \
               -F "caption=${CAPTION}" \
               -F "parse_mode=HTML" \
-              "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" > /dev/null
+              "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument")
+            echo "Telegram API response: $RES"
+
+            if ! echo "$RES" | grep -q '"ok":true'; then
+              echo "Initial upload failed, retrying without HTML caption formatting..."
+              RES=$(curl -s -S \
+                -H "Expect:" \
+                --connect-timeout 60 \
+                --max-time 600 \
+                -F "chat_id=${CHAT_ID}" \
+                -F "document=@${FILE_PATH}" \
+                -F "caption=$(basename "$FILE_PATH")" \
+                "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument")
+              echo "Fallback Telegram API response: $RES"
+            fi
           fi
           EOF
           chmod +x .telegram/tg.sh
@@ -229,10 +256,15 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
         run: |
-          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading zip..."
-          ZIP_FILE=$(ls workspace/sky-kernel-*.zip | head -n1)
-          if [ -f "$ZIP_FILE" ]; then
-            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable Kernel Zip:</b> $(basename $ZIP_FILE)"
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading zip to Telegram..." || true
+          ZIP_FILE=$(find workspace -maxdepth 1 -name "sky-kernel-*.zip" 2>/dev/null | head -n1)
+          if [ -n "$ZIP_FILE" ] && [ -f "$ZIP_FILE" ]; then
+            echo "Found flashable zip: $ZIP_FILE"
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable Kernel Zip:</b> $(basename "$ZIP_FILE")"
+            ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Flashable zip delivered." || true
+          else
+            echo "Error: Flashable zip not found in workspace!"
+            ./.telegram/tg.sh update "<b>⚠️ Xiaomi Sky Build Completed</b>%0A%0A<b>Warning:</b> Flashable zip not found for Telegram upload!" || true
           fi
 
       - name: Upload Artifact to GitHub
