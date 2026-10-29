@@ -51,6 +51,9 @@ echo "Processing DTB..."
 if [ -n "$DTB_DIR" ] && [ -d "$DTB_DIR" ]; then
     SKY_DTBS=$(find "$DTB_DIR" -name "*sky*base.dtb" 2>/dev/null | sort -r | tr '\n' ' ')
     if [ -z "${SKY_DTBS// }" ]; then
+        SKY_DTBS=$(find "$DTB_DIR" -name "*sky*.dtb" ! -name "*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
+    fi
+    if [ -z "${SKY_DTBS// }" ]; then
         echo "Warning: No sky base dtb found in $DTB_DIR, keeping base dtb"
     else
         cat $SKY_DTBS > /tmp/vb_unpack/dtb
@@ -65,31 +68,8 @@ echo "Extracting vendor ramdisk 0 (Fragment 0)..."
 python3 "$SCRIPT_DIR/lz4cpio.py" extract /tmp/vb_unpack/vendor_ramdisk00 /tmp/rd00_work
 
 if [ -n "$MODULES_DIR" ] && [ -d "$MODULES_DIR" ]; then
-    echo "Injecting newly compiled 6.12 modules from $MODULES_DIR..."
-    find "$MODULES_DIR" -name "*.ko" | while read -r ko; do
-        llvm-strip --strip-debug "$ko" 2>/dev/null || true
-        modname=$(basename "$ko")
-        echo "Injecting: $modname"
-        cp -f "$ko" "/tmp/rd00_work/lib/modules/$modname"
-    done
-
-    # Ensure compatibility aliases for Parrot / Ravelin hardware
-    if [ -f "/tmp/rd00_work/lib/modules/pinctrl-sm4450.ko" ]; then
-        cp -f "/tmp/rd00_work/lib/modules/pinctrl-sm4450.ko" "/tmp/rd00_work/lib/modules/pinctrl-parrot.ko"
-        cp -f "/tmp/rd00_work/lib/modules/pinctrl-sm4450.ko" "/tmp/rd00_work/lib/modules/pinctrl-ravelin.ko"
-    fi
-    if [ -f "/tmp/rd00_work/lib/modules/gcc-sm4450.ko" ]; then
-        cp -f "/tmp/rd00_work/lib/modules/gcc-sm4450.ko" "/tmp/rd00_work/lib/modules/gcc-parrot.ko"
-    fi
-    if [ -f "/tmp/rd00_work/lib/modules/dispcc-sm4450.ko" ]; then
-        cp -f "/tmp/rd00_work/lib/modules/dispcc-sm4450.ko" "/tmp/rd00_work/lib/modules/dispcc-parrot.ko"
-    fi
-    if [ -f "/tmp/rd00_work/lib/modules/camcc-sm4450.ko" ]; then
-        cp -f "/tmp/rd00_work/lib/modules/camcc-sm4450.ko" "/tmp/rd00_work/lib/modules/camcc-parrot.ko"
-    fi
-    if [ -f "/tmp/rd00_work/lib/modules/gpucc-sm4450.ko" ]; then
-        cp -f "/tmp/rd00_work/lib/modules/gpucc-sm4450.ko" "/tmp/rd00_work/lib/modules/gpucc-parrot.ko"
-    fi
+    echo "Running patch_ramdisk.py to harmonize 6.12 modules, purge stale 6.6 modules, and regenerate dep/load..."
+    python3 "$SCRIPT_DIR/patch_ramdisk.py" /tmp/rd00_work "$MODULES_DIR" "6.12."
 
     echo "Repacking updated vendor ramdisk 0..."
     python3 "$SCRIPT_DIR/lz4cpio.py" pack /tmp/rd00_work /tmp/vb_unpack/ramdisk00_updated.cpio
@@ -115,6 +95,9 @@ MKBOOT_ARGS=(
 )
 
 if [ -s /tmp/vb_unpack/bootconfig ]; then
+    if ! grep -q "androidboot.selinux=permissive" /tmp/vb_unpack/bootconfig; then
+        echo "androidboot.selinux=permissive" >> /tmp/vb_unpack/bootconfig
+    fi
     MKBOOT_ARGS+=(--vendor_bootconfig /tmp/vb_unpack/bootconfig)
 fi
 

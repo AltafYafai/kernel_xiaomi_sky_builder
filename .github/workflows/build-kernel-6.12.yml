@@ -172,7 +172,9 @@ jobs:
           export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
           ccache -z
 
-          # Setup vendor devicetrees inside arch/arm64/boot/dts/vendor
+          # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
+          echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
+          cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
           rm -rf arch/arm64/boot/dts/vendor
           cp -r ../sm4450-devicetrees arch/arm64/boot/dts/vendor
 
@@ -193,6 +195,7 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
+            DTC_FLAGS="-@" \
             Image dtbs 2>&1 | tee make.log
 
           echo "Compiling Linux 6.12 In-Tree Modules..."
@@ -262,9 +265,14 @@ jobs:
           bash ../scripts/build_boot.sh kernel/out/arch/arm64/boot/Image artifacts/boot-6.12.img
 
           echo "2. Generating dtbo-6.12.img..."
-          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts \( -name "*sky*.dtbo" -o -name "ravelin-sde.dtbo" \) 2>/dev/null | tr '\n' ' ')
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
           if [ -n "${SKY_DTBOS// }" ]; then
+            echo "Packing compiled DTBOs: $SKY_DTBOS"
             python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS || true
+          fi
+          if [ ! -f artifacts/dtbo-6.12.img ] || [ ! -s artifacts/dtbo-6.12.img ]; then
+            echo "Using reference LineageOS dtbo.img..."
+            gh release download lineageos-24.0-reference -p "dtbo.img" -O artifacts/dtbo-6.12.img -R AltafYafai/kernel_xiaomi_sky_builder 2>/dev/null || true
           fi
 
           echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
