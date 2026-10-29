@@ -184,8 +184,18 @@ jobs:
           ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
           make O=out ARCH=arm64 LLVM=1 olddefconfig
 
-          echo "Compiling Linux 6.12 Kernel Image, DTBs & Modules..."
+          echo "Compiling Linux 6.12 Kernel Image and DTBs..."
           set -o pipefail
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            Image dtbs 2>&1 | tee make.log
+
+          echo "Compiling Linux 6.12 In-Tree Modules..."
           make -k -j$(nproc --all) O=out \
             ARCH=arm64 \
             CC="ccache clang" \
@@ -193,7 +203,7 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            Image dtbs modules 2>&1 | tee make.log || true
+            modules 2>&1 | tee -a make.log || true
 
           echo "Compiling Xiaomi Out-of-Tree Modules..."
           make -k -j$(nproc --all) -C $PWD O=out \
