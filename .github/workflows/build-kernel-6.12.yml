@@ -220,6 +220,7 @@ jobs:
           make -k -j$(nproc --all) -C $PWD O=out \
             M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
             DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
+            CONFIG_ARCH_RAVELIN=y \
             KERNEL_SRC=$PWD \
             KERNEL_ROOT=$PWD \
             ARCH=arm64 \
