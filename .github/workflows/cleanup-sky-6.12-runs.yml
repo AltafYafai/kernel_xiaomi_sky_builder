@@ -1,4 +1,4 @@
-name: One-time cleanup - Sky 6.12 builds
+name: One-time cleanup - Sky 6.12 builds (refresh)
 
 on:
   push:
@@ -35,4 +35,4 @@ jobs:
 
           echo "Dispatching exactly one clean build..."
           gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" -f ref="${BRANCH}"
-          echo "Single build dispatched."
+          echo "Single build dispatched after cleanup refresh."
