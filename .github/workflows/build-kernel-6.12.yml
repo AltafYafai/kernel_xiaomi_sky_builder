@@ -222,6 +222,8 @@ jobs:
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             DTC_FLAGS="-@" \
+            CONFIG_XIAOMI_DEVICE_DTBS=y \
+            CONFIG_SKY_DTB=y \
             Image dtbs 2>&1 | tee make.log
 
           echo "=== Verifying DTB Compilation ==="
