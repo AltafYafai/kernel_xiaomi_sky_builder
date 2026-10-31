@@ -1,0 +1,38 @@
+name: One-time cleanup - Sky 6.12 builds
+
+on:
+  push:
+    branches:
+      - work/6.12-platform-port
+    paths:
+      - .github/workflows/cleanup-sky-6.12-runs.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup-and-dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel duplicate Sky 6.12 builds and dispatch exactly one
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: work/6.12-platform-port
+        run: |
+          set -euo pipefail
+          workflow="build-kernel-6.12.yml"
+
+          echo "Cancelling queued and running builds for ${BRANCH}..."
+          for status in queued in_progress; do
+            run_ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?branch=${BRANCH}&status=${status}&per_page=100" --jq '.workflow_runs[].id')
+            while IFS= read -r run_id; do
+              [ -z "${run_id}" ] && continue
+              echo "Cancelling run ${run_id} (${status})"
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" || true
+            done <<< "${run_ids}"
+          done
+
+          echo "Dispatching exactly one clean build..."
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/dispatches" -f ref="${BRANCH}"
+          echo "Single build dispatched."
