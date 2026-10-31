@@ -29,7 +29,7 @@ jobs:
             while IFS= read -r run_id; do
               [ -z "${run_id}" ] && continue
               echo "Cancelling run ${run_id} (${status})"
-              gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" || true
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/force-cancel" || gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" || true
             done <<< "${run_ids}"
           done
 
