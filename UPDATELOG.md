@@ -130,19 +130,35 @@
 * **Diagnostic Notes for Step 4 (Out-of-Tree Modules):**
   * Xiaomi modules require adding `-I$(M)/include` to locate `<misc/xiaomi_panel_notifier.h>` and importing `<linux/soc/qcom/panel_event_notifier.h>`.
 
-### Run 4 (Hardware Modules Compilation Fixes)
+### Run 4 (`41226165244`)
+* **Triggered:** 2026-10-31 17:35 UTC
+* **Result:** ❌ Failed at step `Build 6.12 Kernel Image & Device Trees (70%)`
+* **Error Log:**
+  ```text
+  arch/arm64/boot/dts/qcom/msm-arm-smmu-ravelin.dtsi:33:43: error: 'GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK' undeclared
+     33 |   <GCC_GPU_MEMNOC_GFX_CLK 0>, <&gpucc GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK 0>;
+        |                                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  ```
+* **Root Cause Analysis:**
+  * To fix `socinfo.c` in Run 4, `build-kernel-6.12.yml` used `cp -rn` (no-clobber) for copying devicetree bindings.
+  * Because upstream ACK 6.12 already possessed a minimal `include/dt-bindings/clock/qcom,sm4450-gpucc.h`, `cp -rn` skipped copying the vendor header which contained `GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK 34`.
+* **Fix Action:**
+  * Merged the complete set of ACK 6.12 SoC IDs (`QCOM_ID_SDM670`, `QCOM_ID_SM7150P`, `QCOM_ID_SM8650`, etc.) directly into `android_kernel_xiaomi_sm4450-devicetrees-6.12:include/dt-bindings/arm/qcom,ids.h` (Commit `3a295ec3`).
+  * Reverted workflow from `cp -rn` back to `cp -rf`: now the vendor tree safely overwrites bindings, providing `GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK` while keeping `socinfo.c` fully compatible.
+
+### Run 5 (Devicetree & Out-of-Tree Modules Verification)
 * **Status:** 🟡 **Queued**
 * **Fixes Injected:**
-  1. **In-Tree Qualcomm SoC Driver (`socinfo.c`):**
-     * Restored pure 6.12 `qcom,ids.h` and converted workflow DT-bindings injection to `cp -rn` (no-clobber) to prevent overwriting newer 6.12 IDs (`QCOM_ID_SDM670`, `QCOM_ID_SM7150P`, `QCOM_ID_SM8650`, etc.).
-  2. **Xiaomi Out-of-Tree Modules (`sm4450-modules/xiaomi`):**
-     * Added `subdir-ccflags-y += -I$(src)/include` to `xiaomi/Kbuild`.
-     * Fixed subfolder Kbuild files (`fingerprint`, `misc`, `touch`) to use `-I$(src)/../include`.
-     * Added `linux/soc/qcom/panel_event_notifier.h` into `xiaomi/include/linux/soc/qcom/`.
-     * Added `EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error"` in build workflow.
-  3. **Qualcomm Display Drivers (`sm4450-modules/qcom/opensource/display-drivers`):**
-     * Imported `linux/soc/qcom/msm_mmrm.h`, `linux/soc/qcom/panel_event_notifier.h`, `linux/qcom-dma-mapping.h`, `linux/mem-buf.h`, and `uapi/linux/mem-buf.h` into `display-drivers/include/`.
-     * Added `EXTRA_CFLAGS` pointing to display-drivers and Xiaomi headers with `-Wno-error`.
+  1. **Devicetrees Binding Sync (`sm4450-devicetrees-6.12`):**
+     * Commit `3a295ec3`: `qcom,ids.h` synced with pure ACK 6.12 SoC definitions while retaining vendor clock and PMIC definitions.
+  2. **Xiaomi Out-of-Tree Modules (`sm4450-modules-6.12`):**
+     * Commit `807ff6c`: Added `subdir-ccflags-y += -I$(src)/include` to `xiaomi/Kbuild`.
+     * Added `linux/soc/qcom/panel_event_notifier.h` to `xiaomi/include/linux/soc/qcom/`.
+     * Passed `EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error"`.
+  3. **Qualcomm Display Drivers (`sm4450-modules-6.12`):**
+     * Commit `807ff6c`: Imported `msm_mmrm.h`, `panel_event_notifier.h`, `qcom-dma-mapping.h`, `mem-buf.h`, and `uapi/linux/mem-buf.h`.
+     * Guarded `<linux/gunyah/gh_rm_drv.h>` in `mem-buf.h` with forward declarations.
+     * Injected display include paths via `EXTRA_CFLAGS`.
 
 
 

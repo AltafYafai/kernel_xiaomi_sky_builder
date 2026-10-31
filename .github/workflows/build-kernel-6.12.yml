@@ -184,10 +184,10 @@ jobs:
           export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
           ccache -z
 
-          # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees without clobbering upstream ACK 6.12
+          # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees
           if [ -d "../sm4450-devicetrees/include/dt-bindings" ]; then
-            echo "Copying Qualcomm vendor DT-bindings from sm4450-devicetrees (no-clobber)..."
-            cp -rn ../sm4450-devicetrees/include/dt-bindings/* include/dt-bindings/
+            echo "Copying Qualcomm vendor DT-bindings from sm4450-devicetrees..."
+            cp -rf ../sm4450-devicetrees/include/dt-bindings/* include/dt-bindings/
           fi
 
           # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
