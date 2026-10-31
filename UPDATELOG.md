@@ -146,19 +146,28 @@
   * Merged the complete set of ACK 6.12 SoC IDs (`QCOM_ID_SDM670`, `QCOM_ID_SM7150P`, `QCOM_ID_SM8650`, etc.) directly into `android_kernel_xiaomi_sm4450-devicetrees-6.12:include/dt-bindings/arm/qcom,ids.h` (Commit `3a295ec3`).
   * Reverted workflow from `cp -rn` back to `cp -rf`: now the vendor tree safely overwrites bindings, providing `GPU_CC_HLOS1_VOTE_GPU_SMMU_CLK` while keeping `socinfo.c` fully compatible.
 
-### Run 5 (Devicetree & Out-of-Tree Modules Verification)
-* **Status:** 🟡 **Queued**
-* **Fixes Injected:**
-  1. **Devicetrees Binding Sync (`sm4450-devicetrees-6.12`):**
-     * Commit `3a295ec3`: `qcom,ids.h` synced with pure ACK 6.12 SoC definitions while retaining vendor clock and PMIC definitions.
-  2. **Xiaomi Out-of-Tree Modules (`sm4450-modules-6.12`):**
-     * Commit `807ff6c`: Added `subdir-ccflags-y += -I$(src)/include` to `xiaomi/Kbuild`.
-     * Added `linux/soc/qcom/panel_event_notifier.h` to `xiaomi/include/linux/soc/qcom/`.
-     * Passed `EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error"`.
-  3. **Qualcomm Display Drivers (`sm4450-modules-6.12`):**
-     * Commit `807ff6c`: Imported `msm_mmrm.h`, `panel_event_notifier.h`, `qcom-dma-mapping.h`, `mem-buf.h`, and `uapi/linux/mem-buf.h`.
-     * Guarded `<linux/gunyah/gh_rm_drv.h>` in `mem-buf.h` with forward declarations.
-     * Injected display include paths via `EXTRA_CFLAGS`.
+### Run 5 (`41226867082`) - 100% SUCCESSFUL KERNEL, DTB & MODULES BUILD
+* **Triggered:** 2026-10-31 17:55 UTC
+* **Completed:** 2026-10-31 18:05 UTC (9m 50s total build time via ccache)
+* **Result:** ✅ **100% SUCCESS - All 15 workflow steps passed cleanly**
+* **Milestones Achieved:**
+  1. **Clean Kernel & Devicetree Build:**
+     * `Image` + all 4 device trees (`ravelin-sky-base.dtb`, `ravelin-sky-4gb-base.dtb`, `ravelin-sky-overlay.dtbo`, `ravelin-sky-4gb-overlay.dtbo`) compiled with zero errors.
+  2. **185 Compiled Kernel Modules (.ko):**
+     * Out-of-tree hardware modules compiled and linked:
+       - `drivers/bus/mhi/host/mhi.ko`
+       - `drivers/bluetooth/btqca.ko`, `hci_uart.ko`, `btbcm.ko`, `btsdio.ko`
+       - `drivers/mmc/host/sdhci-msm.ko`, `cqhci.ko`
+       - `drivers/cpufreq/qcom-cpufreq-hw.ko`
+       - `drivers/rtc/rtc-pm8xxx.ko`
+       - Total: 185 `.ko` modules packaged into `vendor_boot-6.12.img`.
+  3. **Release Published:**
+     * Published GitHub Release: [`sky-6.12-c42293064-20261031-1805`](https://github.com/AltafYafai/kernel_xiaomi_sky_builder/releases/tag/sky-6.12-c42293064-20261031-1805)
+     * `boot-6.12.img` (96.00 MiB)
+     * `vendor_boot-6.12.img` (96.00 MiB with 185 modules)
+     * `dtbo-6.12.img` (95.03 KiB)
+     * `sky-kernel-6.12-c42293064.zip` (34.26 MiB, AnyKernel3 recovery zip)
+     * `sky-fastboot-6.12-c42293064.zip` (25.91 MiB, 1-Click Fastboot bundle)
 
 
 
