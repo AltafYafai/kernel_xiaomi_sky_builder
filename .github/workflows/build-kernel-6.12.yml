@@ -184,6 +184,12 @@ jobs:
           export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
           ccache -z
 
+          # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees
+          if [ -d "../sm4450-devicetrees/include/dt-bindings" ]; then
+            echo "Copying Qualcomm vendor DT-bindings from sm4450-devicetrees..."
+            cp -r ../sm4450-devicetrees/include/dt-bindings/* include/dt-bindings/
+          fi
+
           # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
           echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
           cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/

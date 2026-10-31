@@ -83,7 +83,34 @@
   * When cloning with `--depth=1` inside GitHub Actions, git creates a shallow commit graph.
   * Pushing a shallow commit graph into an empty remote GitHub repository causes GitHub's server-side `index-pack` to reject the push because of missing root commit connectivity.
 * **Fix Action:**
-  * In `build-kernel-6.12.yml`, simply checkout ACK `android16-6.12` and build directly without performing a shallow push inside the CI job. Once the kernel compiles cleanly, the tree is seeded with proper full commit history.
+  * In `build-kernel-6.12.yml`, checkout ACK `android16-6.12` directly and proceed to compilation without attempting an unneeded shallow push during the CI build run.
+
+### Run 2 (`41219648753`)
+* **Triggered:** 2026-10-31 21:56 UTC
+* **Result:** ❌ Failed at step `Build 6.12 Kernel Image & Device Trees (70%)`
+* **Error Log:**
+  ```text
+  In file included from arch/arm64/boot/dts/qcom/ravelin-xiaomi-common-base.dtsi:6,
+                   from arch/arm64/boot/dts/qcom/ravelin-sky-base.dtsi:6,
+                   from arch/arm64/boot/dts/qcom/ravelin-sky-base.dts:5:
+  arch/arm64/boot/dts/qcom/ravelin.dtsi:13:10: fatal error: 'dt-bindings/soc/qcom,ipcc.h' file not found
+     13 | #include <dt-bindings/soc/qcom,ipcc.h>
+        |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  compilation terminated.
+  ```
+* **Root Cause Analysis:**
+  * Google's ACK `android16-6.12` only includes upstream Linux devicetree bindings; proprietary Qualcomm SoC bindings (such as `dt-bindings/soc/qcom,ipcc.h` and `dt-bindings/interconnect/qcom,ravelin.h`) were missing.
+  * In addition, `include/dt-bindings/arm/msm/qcom_dma_heap_dt_constants.h` contained a broken relative symlink (`../../../linux/qcom_dma_heap_dt_constants.h`) which caused subsequent DTS preprocessing failures.
+* **Fix Action:**
+  * Extracted complete Qualcomm vendor DT-bindings from `xiaomi-ravelin/android_kernel_xiaomi_sm4450` (1,018 headers) into private repository `AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12` under `include/dt-bindings/`.
+  * Replaced broken symlink `qcom_dma_heap_dt_constants.h` with a self-contained header file.
+  * Preprocessed all Sky device trees (`ravelin-sky-base.dts`, `ravelin-sky-4gb-base.dts`, `ravelin-sky-overlay.dtso`, `ravelin-sky-4gb-overlay.dtso`) locally; verified 100% clean preprocessing with zero missing header errors.
+  * Updated `.github/workflows/build-kernel-6.12.yml` to copy `../sm4450-devicetrees/include/dt-bindings/*` into `include/dt-bindings/` before DTS compilation.
+
+### Run 3 (DTB & Image Build Verification)
+* **Status:** 🟡 **Queued**
+* **Target:** Verify clean compilation of `ravelin-sky-base.dtb`, `ravelin-sky-4gb-base.dtb`, `ravelin-sky-overlay.dtbo`, `ravelin-sky-4gb-overlay.dtbo`, and kernel `Image`.
+
 
 ---
 
