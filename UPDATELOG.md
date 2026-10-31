@@ -130,6 +130,20 @@
 * **Diagnostic Notes for Step 4 (Out-of-Tree Modules):**
   * Xiaomi modules require adding `-I$(M)/include` to locate `<misc/xiaomi_panel_notifier.h>` and importing `<linux/soc/qcom/panel_event_notifier.h>`.
 
+### Run 4 (Hardware Modules Compilation Fixes)
+* **Status:** 🟡 **Queued**
+* **Fixes Injected:**
+  1. **In-Tree Qualcomm SoC Driver (`socinfo.c`):**
+     * Restored pure 6.12 `qcom,ids.h` and converted workflow DT-bindings injection to `cp -rn` (no-clobber) to prevent overwriting newer 6.12 IDs (`QCOM_ID_SDM670`, `QCOM_ID_SM7150P`, `QCOM_ID_SM8650`, etc.).
+  2. **Xiaomi Out-of-Tree Modules (`sm4450-modules/xiaomi`):**
+     * Added `subdir-ccflags-y += -I$(src)/include` to `xiaomi/Kbuild`.
+     * Fixed subfolder Kbuild files (`fingerprint`, `misc`, `touch`) to use `-I$(src)/../include`.
+     * Added `linux/soc/qcom/panel_event_notifier.h` into `xiaomi/include/linux/soc/qcom/`.
+     * Added `EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error"` in build workflow.
+  3. **Qualcomm Display Drivers (`sm4450-modules/qcom/opensource/display-drivers`):**
+     * Imported `linux/soc/qcom/msm_mmrm.h`, `linux/soc/qcom/panel_event_notifier.h`, `linux/qcom-dma-mapping.h`, `linux/mem-buf.h`, and `uapi/linux/mem-buf.h` into `display-drivers/include/`.
+     * Added `EXTRA_CFLAGS` pointing to display-drivers and Xiaomi headers with `-Wno-error`.
+
 
 
 ---

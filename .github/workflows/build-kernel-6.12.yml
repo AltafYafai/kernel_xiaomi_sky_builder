@@ -184,10 +184,10 @@ jobs:
           export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
           ccache -z
 
-          # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees
+          # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees without clobbering upstream ACK 6.12
           if [ -d "../sm4450-devicetrees/include/dt-bindings" ]; then
-            echo "Copying Qualcomm vendor DT-bindings from sm4450-devicetrees..."
-            cp -r ../sm4450-devicetrees/include/dt-bindings/* include/dt-bindings/
+            echo "Copying Qualcomm vendor DT-bindings from sm4450-devicetrees (no-clobber)..."
+            cp -rn ../sm4450-devicetrees/include/dt-bindings/* include/dt-bindings/
           fi
 
           # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
@@ -243,6 +243,7 @@ jobs:
           echo "Compiling Xiaomi Out-of-Tree Modules..."
           make -k -j$(nproc --all) -C $PWD O=out \
             M=$(realpath ../sm4450-modules/xiaomi) \
+            EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
             ARCH=arm64 \
             CC="ccache clang" \
             HOSTCC="ccache clang" \
@@ -255,6 +256,7 @@ jobs:
           make -k -j$(nproc --all) -C $PWD O=out \
             M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
             DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
+            EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/qcom/opensource/display-drivers/include) -I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
             CONFIG_ARCH_RAVELIN=y \
             KERNEL_SRC=$PWD \
             KERNEL_ROOT=$PWD \
