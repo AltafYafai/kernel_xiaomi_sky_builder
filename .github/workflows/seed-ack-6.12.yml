@@ -50,19 +50,34 @@ jobs:
           git add arch/arm64/configs/vendor/sky_GKI.config UPDATELOG.md
           git commit -m "arm64: configs: Add initial sky_GKI.config and UPDATELOG for Linux 6.12" || true
 
-      - name: Push to Target Repository
+      - name: Push to Target Repository in Chunks
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           cd ack-6.12
+          git config http.postBuffer 524288000
+          git config http.maxRequestBuffer 100M
+          git config core.compression 9
+
           REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.event.inputs.TARGET_REPO }}.git"
           git remote add target "$REMOTE_URL"
 
-          echo "Pushing upstream android16-6.12 branch with full history..."
-          git push -f target android16-6.12:refs/heads/android16-6.12
+          TARGET_BRANCH="${{ github.event.inputs.TARGET_BRANCH }}"
+          echo "Calculating fast-forward commit checkpoints (every 100,000 commits) to bypass GitHub 2GB limit..."
+          CHECKPOINTS=$(git rev-list --reverse android16-6.12 | awk 'NR % 100000 == 0')
+          
+          idx=1
+          for cp in $CHECKPOINTS; do
+            echo "=== Pushing Checkpoint $idx: $cp ==="
+            git push target "$cp:refs/heads/$TARGET_BRANCH"
+            idx=$((idx + 1))
+          done
 
-          echo "Pushing target ${{ github.event.inputs.TARGET_BRANCH }} branch..."
-          git push -f -u target ${{ github.event.inputs.TARGET_BRANCH }}:refs/heads/${{ github.event.inputs.TARGET_BRANCH }}
+          echo "=== Pushing full upstream android16-6.12 branch ==="
+          git push target android16-6.12:refs/heads/android16-6.12
 
-          echo "Setting default branch to ${{ github.event.inputs.TARGET_BRANCH }}..."
-          gh repo edit ${{ github.event.inputs.TARGET_REPO }} --default-branch ${{ github.event.inputs.TARGET_BRANCH }}
+          echo "=== Pushing final $TARGET_BRANCH with Xiaomi Sky configs ==="
+          git push -u target "$TARGET_BRANCH:refs/heads/$TARGET_BRANCH"
+
+          echo "=== Setting default branch to $TARGET_BRANCH ==="
+          gh repo edit ${{ github.event.inputs.TARGET_REPO }} --default-branch "$TARGET_BRANCH"
