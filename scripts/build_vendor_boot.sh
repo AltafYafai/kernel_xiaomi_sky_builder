@@ -95,8 +95,11 @@ MKBOOT_ARGS=(
 )
 
 if [ -s /tmp/vb_unpack/bootconfig ]; then
-    if ! grep -q "androidboot.selinux=permissive" /tmp/vb_unpack/bootconfig; then
-        echo "androidboot.selinux=permissive" >> /tmp/vb_unpack/bootconfig
+    # Never weaken SELinux for a normal kernel build. Normalize an inherited
+    # permissive setting to enforcing and otherwise preserve the reference config.
+    if grep -q "androidboot.selinux=permissive" /tmp/vb_unpack/bootconfig; then
+        echo "WARNING: replacing inherited androidboot.selinux=permissive with enforcing"
+        sed -i 's/androidboot.selinux=permissive/androidboot.selinux=enforcing/g' /tmp/vb_unpack/bootconfig
     fi
     MKBOOT_ARGS+=(--vendor_bootconfig /tmp/vb_unpack/bootconfig)
 fi
