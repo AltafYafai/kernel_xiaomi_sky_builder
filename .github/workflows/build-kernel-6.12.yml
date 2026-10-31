@@ -197,6 +197,10 @@ jobs:
           echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
           cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
 
+          # The vendor audio Makefile is an external-DT build wrapper. In-tree Kbuild
+          # must read audio/Kbuild to register ravelin-audio*.dtbo targets.
+          rm -f arch/arm64/boot/dts/qcom/audio/Makefile
+
           # Append unconditional Sky DTB targets to arch/arm64/boot/dts/qcom/Makefile
           printf "\n# Unconditional targets for Xiaomi Sky\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb\ndtb-y += ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo\ndtb-y += ravelin-sky-4gb-overlay.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
 
