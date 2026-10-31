@@ -34,23 +34,6 @@ jobs:
 
       - name: Checkout Builder Repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Resolve source branch from dispatch marker
-        if: github.event_name == 'push'
-        shell: bash
-        run: |
-          MARKER="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | awk 'index($0, ".dispatch/") == 1 && $0 ~ /\.json$/ { print; exit }')"
-          if [ -n "$MARKER" ]; then
-            SOURCE_BRANCH="$(git show "$GITHUB_SHA:$MARKER" | jq -r '.branch // empty')"
-            if [ -n "$SOURCE_BRANCH" ]; then
-              echo "SOURCE_BRANCH=$SOURCE_BRANCH" >> "$GITHUB_ENV"
-              echo "Triggered by source branch: $SOURCE_BRANCH"
-            fi
-          else
-            echo "No source dispatch marker found; using configured fallback branch."
-          fi
 
       - name: Setup Telegram Helper
         run: |
@@ -156,7 +139,7 @@ jobs:
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
           echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
-          if ! git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
+          if ! git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
             echo "Kernel 6.12 repo empty or branch not found. Fetching ACK android16-6.12 directly..."
             git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
@@ -172,11 +155,11 @@ jobs:
           fi
 
           echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
-          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12.git sm4450-devicetrees
 
           echo "Cloning android_kernel_xiaomi_sm4450-modules-6.12..."
-          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-modules-6.12.git sm4450-modules
 
           cd kernel
@@ -615,7 +598,7 @@ jobs:
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
           echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
-          if ! git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
+          if ! git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
             echo "Kernel 6.12 repo empty or branch not found. Fetching ACK android16-6.12 directly..."
             git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
@@ -631,11 +614,11 @@ jobs:
           fi
 
           echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
-          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12.git sm4450-devicetrees
 
           echo "Cloning android_kernel_xiaomi_sm4450-modules-6.12..."
-          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-modules-6.12.git sm4450-modules
 
           cd kernel
