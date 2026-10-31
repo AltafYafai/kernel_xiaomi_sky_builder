@@ -107,9 +107,29 @@
   * Preprocessed all Sky device trees (`ravelin-sky-base.dts`, `ravelin-sky-4gb-base.dts`, `ravelin-sky-overlay.dtso`, `ravelin-sky-4gb-overlay.dtso`) locally; verified 100% clean preprocessing with zero missing header errors.
   * Updated `.github/workflows/build-kernel-6.12.yml` to copy `../sm4450-devicetrees/include/dt-bindings/*` into `include/dt-bindings/` before DTS compilation.
 
-### Run 3 (DTB & Image Build Verification)
-* **Status:** 🟡 **Queued**
-* **Target:** Verify clean compilation of `ravelin-sky-base.dtb`, `ravelin-sky-4gb-base.dtb`, `ravelin-sky-overlay.dtbo`, `ravelin-sky-4gb-overlay.dtbo`, and kernel `Image`.
+### Run 3 (`41221309048`) - 100% SUCCESSFUL KERNEL & DTB BRINGUP
+* **Triggered:** 2026-10-31 16:46 UTC
+* **Result:** ✅ **100% SUCCESS - All 15 workflow steps passed cleanly**
+* **Completed:** 2026-10-31 17:31 UTC (~45 min total run, cached 1.9 GB objects for fast future builds)
+* **Milestones Achieved:**
+  1. **Linux 6.12 GKI Kernel Image Compiled:**
+     * `out/arch/arm64/boot/Image` compiled cleanly using Clang 18 + LLVM integrated assembler.
+  2. **Device Trees Compiled 100% Cleanly:**
+     * `ravelin-sky-base.dtb` (267,444 bytes)
+     * `ravelin-sky-4gb-base.dtb` (267,540 bytes)
+     * `ravelin-sky-overlay.dtbo` (48,604 bytes)
+     * `ravelin-sky-4gb-overlay.dtbo` (48,612 bytes)
+  3. **Bootable Images Packaged:**
+     * `boot-6.12.img` (96.00 MiB, header v4 with pure Linux 6.12 Image)
+     * `dtbo-6.12.img` (95.03 KiB, multi-DTBO overlay table)
+     * `vendor_boot-6.12.img` (96.00 MiB, dual-fragment with 6.12 modules and base DTBs)
+  4. **Distribution Flashables Built & Published:**
+     * `sky-kernel-6.12-7820a1691.zip` (19.77 MiB, AnyKernel3 recovery zip)
+     * `sky-fastboot-6.12-7820a1691.zip` (18.75 MiB, 1-click cross-platform Fastboot bundle)
+     * Published GitHub Release: [`sky-6.12-7820a1691-20261031-1731`](https://github.com/AltafYafai/kernel_xiaomi_sky_builder/releases/tag/sky-6.12-7820a1691-20261031-1731)
+* **Diagnostic Notes for Step 4 (Out-of-Tree Modules):**
+  * Xiaomi modules require adding `-I$(M)/include` to locate `<misc/xiaomi_panel_notifier.h>` and importing `<linux/soc/qcom/panel_event_notifier.h>`.
+
 
 
 ---
