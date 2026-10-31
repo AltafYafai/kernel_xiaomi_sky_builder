@@ -39,8 +39,19 @@ jobs:
 
       - name: Resolve source branch from dispatch marker
         if: github.event_name == 'push'
+        shell: bash
         run: |
-          MARKER=$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^.dispatch/.*\.json
+          MARKER="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | awk 'index($0, ".dispatch/") == 1 && $0 ~ /\.json$/ { print; exit }')"
+          if [ -n "$MARKER" ]; then
+            SOURCE_BRANCH="$(git show "$GITHUB_SHA:$MARKER" | jq -r '.branch // empty')"
+            if [ -n "$SOURCE_BRANCH" ]; then
+              echo "SOURCE_BRANCH=$SOURCE_BRANCH" >> "$GITHUB_ENV"
+              echo "Triggered by source branch: $SOURCE_BRANCH"
+            fi
+          else
+            echo "No source dispatch marker found; using configured fallback branch."
+          fi
+
       - name: Setup Telegram Helper
         run: |
           mkdir -p .telegram
