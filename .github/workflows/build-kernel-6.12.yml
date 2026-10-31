@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - work/6.12-platform-port
-  repository_dispatch:
-    types:
-      - source-6.12-updated
   workflow_dispatch:
     inputs:
       KERNEL_BRANCH:
@@ -37,6 +34,469 @@ jobs:
 
       - name: Checkout Builder Repo
         uses: actions/checkout@v4
+
+      - name: Resolve source branch from dispatch marker
+        if: github.event_name == 'push'
+        run: |
+          MARKER=$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" | grep '^.dispatch/.*\.json
+      - name: Setup Telegram Helper
+        run: |
+          mkdir -p .telegram
+          cat << 'EOF' > .telegram/tg.sh
+          #!/usr/bin/env bash
+          BOT_TOKEN="${TELEGRAM_BOT_TOKEN}"
+          CHAT_ID="${TELEGRAM_CHAT_ID:-${INPUT_TELEGRAM_CHAT_ID}}"
+
+          if [ -z "$BOT_TOKEN" ] || [ -z "$CHAT_ID" ]; then
+            echo "Telegram credentials missing, skipping telegram update."
+            exit 0
+          fi
+
+          ACTION="$1"
+          TEXT="$2"
+          MSG_ID_FILE="/tmp/tg_msg_id.txt"
+
+          if [ "$ACTION" = "start" ]; then
+            RES=$(curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${CHAT_ID}" \
+              -d "parse_mode=HTML" \
+              -d "text=${TEXT}")
+            MSG_ID=$(echo "$RES" | jq -r '.result.message_id' 2>/dev/null || true)
+            if [ -n "$MSG_ID" ] && [ "$MSG_ID" != "null" ]; then
+              echo "$MSG_ID" > "$MSG_ID_FILE"
+            fi
+          elif [ "$ACTION" = "update" ]; then
+            if [ -f "$MSG_ID_FILE" ]; then
+              MSG_ID=$(cat "$MSG_ID_FILE")
+              curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/editMessageText" \
+                -d "chat_id=${CHAT_ID}" \
+                -d "message_id=${MSG_ID}" \
+                -d "parse_mode=HTML" \
+                -d "text=${TEXT}" > /dev/null
+            else
+              $0 start "$TEXT"
+            fi
+          elif [ "$ACTION" = "send_document" ]; then
+            FILE_PATH="$2"
+            CAPTION="$3"
+            curl -s -F "chat_id=${CHAT_ID}" \
+              -F "document=@${FILE_PATH}" \
+              -F "caption=${CAPTION}" \
+              -F "parse_mode=HTML" \
+              "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" > /dev/null
+          fi
+          EOF
+          chmod +x .telegram/tg.sh
+
+      - name: Notify Build Started (0%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh start "<b>🔨 Xiaomi Sky Linux 6.12 Kernel Build Started</b>%0A%0A<b>Progress:</b> [░░░░░░░░░░] 0%%0A<b>Step:</b> Initializing Build Environment"
+
+      - name: Install dependencies and Clang 18 (15%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█░░░░░░░░░] 15%%0A<b>Step:</b> Installing Clang 18 and build dependencies..."
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git ccache libssl-dev bison flex libelf-dev libdw-dev build-essential zip curl \
+            libncurses-dev bc python3 python3-pip rsync u-boot-tools \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            clang-18 lld-18 llvm-18 jq lz4 cpio kmod
+
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
+          sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-18 100
+          sudo update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-18 100
+          sudo update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-18 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-18 100
+          sudo update-alternatives --install /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-18 100
+          sudo update-alternatives --install /usr/bin/llvm-strip llvm-strip /usr/bin/llvm-strip-18 100
+
+      - name: Restore Ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-kernel-6.12-ccache-
+            ${{ runner.os }}-kernel-ccache-
+
+      - name: Clone 6.12 Kernel, Devicetrees & Modules (30%)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [███░░░░░░░] 30%%0A<b>Step:</b> Cloning 6.12 Kernel and Devicetrees..."
+          mkdir -p workspace
+          cd workspace
+
+          AUTH_HEADER="x-access-token:${GH_TOKEN}"
+
+          echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
+          if ! git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
+            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
+            echo "Kernel 6.12 repo empty or branch not found. Fetching ACK android16-6.12 directly..."
+            git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
+            cd kernel
+            git checkout -b ${{ github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }}
+            mkdir -p arch/arm64/configs/vendor
+            curl -s -o arch/arm64/configs/vendor/sky_GKI.config https://raw.githubusercontent.com/AltafYafai/kernel_xiaomi_sky/lineage-23.1/arch/arm64/configs/vendor/sky_GKI.config
+            git config user.name "Altaf Yafai"
+            git config user.email "altaf.alu@gmail.com"
+            git add arch/arm64/configs/vendor/sky_GKI.config
+            git commit -m "arm64: configs: Add initial sky_GKI.config for Linux 6.12" || true
+            cd ..
+          fi
+
+          echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
+          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
+            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12.git sm4450-devicetrees
+
+          echo "Cloning android_kernel_xiaomi_sm4450-modules-6.12..."
+          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
+            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-modules-6.12.git sm4450-modules
+
+          cd kernel
+          echo "KERNEL_REV=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Build 6.12 Kernel Image & Device Trees (70%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [███████░░░] 70%%0A<b>Step:</b> Compiling Kernel Image & DTBs (Clang 18 LLVM=1)..."
+          cd workspace/kernel
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export HEADER_ARCH=arm64
+          export KBUILD_BUILD_HOST=GitHub-Actions
+          export KBUILD_BUILD_USER=AltafYafai
+
+          # Configure ccache for maximum compilation speed
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          export CCACHE_MAXSIZE="10G"
+          export CCACHE_COMPRESS=1
+          export CCACHE_COMPRESSLEVEL=5
+          export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
+          ccache -z
+
+          # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees
+          if [ -d "../sm4450-devicetrees/include/dt-bindings" ]; then
+            echo "Copying Qualcomm vendor DT-bindings from sm4450-devicetrees..."
+            cp -rf ../sm4450-devicetrees/include/dt-bindings/* include/dt-bindings/
+          fi
+
+          # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
+          echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
+          cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
+
+          # The vendor audio Makefile is an external-DT build wrapper. In-tree Kbuild
+          # must read audio/Kbuild to register ravelin-audio*.dtbo targets.
+          rm -f arch/arm64/boot/dts/qcom/audio/Makefile
+
+          # Append unconditional Sky DTB targets to arch/arm64/boot/dts/qcom/Makefile
+          printf "\n# Unconditional targets for Xiaomi Sky\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb\ndtb-y += ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo\ndtb-y += ravelin-sky-4gb-overlay.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
+
+          # Ensure arch/arm64/boot/dts/Makefile descends into qcom
+          echo 'subdir-y += qcom' > arch/arm64/boot/dts/Makefile
+          rm -rf arch/arm64/boot/dts/vendor
+
+          mkdir -p out
+          echo "Configuring gki_defconfig..."
+          make O=out ARCH=arm64 LLVM=1 gki_defconfig
+
+          echo "Merging vendor sky_GKI.config..."
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
+          make O=out ARCH=arm64 LLVM=1 olddefconfig
+
+          echo "Compiling Linux 6.12 Kernel Image and DTBs..."
+          set -o pipefail
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            DTC_FLAGS="-@" \
+            CONFIG_XIAOMI_DEVICE_DTBS=y \
+            CONFIG_SKY_DTB=y \
+            Image dtbs 2>&1 | tee make.log
+
+          echo "=== Verifying DTB Compilation ==="
+          ls -la out/arch/arm64/boot/dts/qcom/*sky* 2>/dev/null || true
+          for dtb in ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb; do
+            if [ ! -s "out/arch/arm64/boot/dts/qcom/$dtb" ]; then
+              echo "FATAL ERROR: $dtb was not compiled!"
+              grep -E "DTC|dtb|DTS|error" make.log | tail -n 80
+              exit 1
+            fi
+          done
+
+          echo "Compiling Linux 6.12 In-Tree Modules..."
+          make -k -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log
+
+          echo "Compiling Xiaomi Out-of-Tree Modules..."
+          make -k -j$(nproc --all) -C $PWD O=out \
+            M=$(realpath ../sm4450-modules/xiaomi) \
+            EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log
+
+          echo "Compiling Qualcomm Display Drivers (msm_drm)..."
+          make -k -j$(nproc --all) -C $PWD O=out \
+            M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
+            DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
+            EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/qcom/opensource/display-drivers/include) -I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
+            CONFIG_ARCH_RAVELIN=y \
+            KERNEL_SRC=$PWD \
+            KERNEL_ROOT=$PWD \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log
+
+          echo "=== COMPILED MODULES COUNT ==="
+          find out ../sm4450-modules -name "*.ko" | wc -l
+          find out ../sm4450-modules -name "*.ko" | head -n 30 || true
+
+          echo "=== REQUIRED SKY PLATFORM MODULES ==="
+          for module in pinctrl-parrot.ko pinctrl-ravelin.ko qnoc-parrot.ko qnoc-ravelin.ko gcc-parrot.ko dispcc-parrot.ko camcc-parrot.ko gpucc-parrot.ko debugcc-parrot.ko videocc-parrot.ko; do
+            if ! find out -name "$module" -print -quit | grep -q .; then
+              echo "FATAL ERROR: required platform module $module was not built"
+              exit 1
+            fi
+          done
+
+          echo "=== CCACHE STATISTICS ==="
+          ccache -s
+
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "ERROR: Kernel Image (out/arch/arm64/boot/Image) was not generated!"
+            exit 1
+          fi
+
+      - name: Save Ccache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.run_id }}
+
+      - name: Package Boot, Vendor Boot & DTBO Images (85%)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [████████░░] 85%%0A<b>Step:</b> Building boot, vendor_boot, and dtbo images..." || true
+          cd workspace
+          mkdir -p artifacts
+
+          echo "1. Generating header v4 boot-6.12.img..."
+          bash ../scripts/build_boot.sh kernel/out/arch/arm64/boot/Image artifacts/boot-6.12.img
+
+          echo "2. Generating dtbo-6.12.img..."
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
+          for dtbo in ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo; do
+            if ! find kernel/out/arch/arm64/boot/dts -name "$dtbo" -print -quit | grep -q .; then
+              echo "FATAL ERROR: required compiled overlay $dtbo is missing"
+              exit 1
+            fi
+          done
+          if [ -z "${SKY_DTBOS// }" ]; then
+            echo "FATAL ERROR: no sky DTBOs were compiled; refusing to substitute a reference DTBO image"
+            exit 1
+          fi
+          echo "Packing compiled DTBOs: $SKY_DTBOS"
+          python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS
+          test -s artifacts/dtbo-6.12.img
+
+          echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
+          bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
+
+          ls -lh artifacts/
+
+      - name: Prepare AnyKernel3 Zip & Fastboot Bundle (95%)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████░] 95%%0A<b>Step:</b> Packaging AnyKernel3 & Fastboot flashables..." || true
+          cd workspace
+          git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
+
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/
+          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img AnyKernel3/dtbo.img
+          [ -f artifacts/vendor_boot-6.12.img ] && cp artifacts/vendor_boot-6.12.img AnyKernel3/vendor_boot.img
+
+          # Flatten base Sky device trees
+          find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
+          [ -s AnyKernel3/dtb ] || rm -f AnyKernel3/dtb
+
+          # Collect all compiled hardware modules (.ko)
+          mkdir -p AnyKernel3/modules
+          find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
+          llvm-strip --strip-debug AnyKernel3/modules/*.ko 2>/dev/null || true
+
+          cd AnyKernel3
+          sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 LTS Kernel for Redmi 12 5G/' anykernel.sh
+          sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
+          sed -i 's/block=.*/block=boot;/' anykernel.sh
+          sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
+
+          # Inject flash_generic vendor_boot and flash_dtbo triggers
+          if ! grep -q "flash_generic vendor_boot" anykernel.sh; then
+            sed -i '/## end boot install/i [ -f vendor_boot.img ] \&\& flash_generic vendor_boot' anykernel.sh
+          fi
+          if ! grep -q "flash_dtbo" anykernel.sh; then
+            sed -i '/## end boot install/i [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
+          fi
+
+          zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
+          cd ..
+
+          # Create Fastboot flashing package
+          mkdir -p fastboot_bundle
+          cp artifacts/boot-6.12.img fastboot_bundle/boot.img
+          cp artifacts/vendor_boot-6.12.img fastboot_bundle/vendor_boot.img
+          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img fastboot_bundle/dtbo.img
+
+          cat << 'EOF' > fastboot_bundle/flash.sh
+          #!/usr/bin/env bash
+          set -e
+          echo "=== Flashing Sky Linux 6.12 Kernel ==="
+          fastboot flash boot boot.img
+          fastboot flash vendor_boot vendor_boot.img
+          [ -f dtbo.img ] && fastboot flash dtbo dtbo.img
+          echo "=== Flashing Complete! Rebooting... ==="
+          fastboot reboot
+          EOF
+          chmod +x fastboot_bundle/flash.sh
+
+          cat << 'EOF' > fastboot_bundle/flash.bat
+          @echo off
+          echo === Flashing Sky Linux 6.12 Kernel ===
+          fastboot flash boot boot.img
+          fastboot flash vendor_boot vendor_boot.img
+          if exist dtbo.img fastboot flash dtbo dtbo.img
+          echo === Flashing Complete! Rebooting... ===
+          fastboot reboot
+          EOF
+
+          cd fastboot_bundle
+          zip -r9 ../sky-fastboot-6.12-${{ env.KERNEL_REV }}.zip *
+          cd ..
+
+          cp artifacts/*.img .
+
+      - name: Upload Artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: sky-kernel-6.12-${{ env.KERNEL_REV }}
+          path: |
+            workspace/sky-kernel-6.12-*.zip
+            workspace/sky-fastboot-6.12-*.zip
+            workspace/*.img
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+        run: |
+          TAG_NAME="sky-6.12-${{ env.KERNEL_REV }}-$(date +%Y%m%d-%H%M)"
+          echo "Publishing GitHub release $TAG_NAME..."
+          gh release create "$TAG_NAME" \
+            workspace/sky-kernel-6.12-*.zip \
+            workspace/sky-fastboot-6.12-*.zip \
+            workspace/*.img \
+            --title "Sky Linux 6.12 Kernel ($TAG_NAME)" \
+            --notes "Linux 6.12 GKI LTS build for Xiaomi Redmi 12 5G / POCO M6 Pro 5G (sky). Includes AnyKernel3 recovery zip, 1-click Fastboot bundle, boot, vendor_boot (with 6.12 modules and DTBs), and dtbo images." || true
+
+      - name: Notify Build Complete (100%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading packages..." || true
+          ZIP_FILE=$(ls workspace/sky-kernel-6.12-*.zip 2>/dev/null | head -n1)
+          if [ -f "$ZIP_FILE" ]; then
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable Recovery Zip:</b> $(basename $ZIP_FILE)" || true
+          fi
+          FASTBOOT_ZIP=$(ls workspace/sky-fastboot-6.12-*.zip 2>/dev/null | head -n1)
+          if [ -f "$FASTBOOT_ZIP" ]; then
+            ./.telegram/tg.sh send_document "$FASTBOOT_ZIP" "<b>⚡ Fastboot Flash Package:</b> $(basename $FASTBOOT_ZIP)" || true
+          fi
+
+      - name: Handle Build Failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          mkdir -p /tmp/logs
+          LOG_FILE="/tmp/logs/build_error_${{ github.run_id }}.log"
+          
+          echo "=== BUILD FAILURE LOG REPORT ===" > "$LOG_FILE"
+          echo "Run ID: ${{ github.run_id }}" >> "$LOG_FILE"
+          echo "Workflow: ${{ github.workflow }}" >> "$LOG_FILE"
+          echo "Commit: ${{ env.KERNEL_REV }}" >> "$LOG_FILE"
+          echo "Timestamp: $(date -u)" >> "$LOG_FILE"
+          echo -e "\n=== ERROR DETAILS ===" >> "$LOG_FILE"
+          
+          if [ -f workspace/kernel/make.log ]; then
+            tail -n 250 workspace/kernel/make.log >> "$LOG_FILE"
+          elif [ -f workspace/kernel/out/make.log ]; then
+            tail -n 250 workspace/kernel/out/make.log >> "$LOG_FILE"
+          else
+            echo "Step failed before compilation log creation." >> "$LOG_FILE"
+          fi
+
+          ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Linux 6.12 Build Failed!</b>%0A%0A<b>Run ID:</b> ${{ github.run_id }}%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Failed! See attached error log."
+          ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log" || true
+ | head -n1 || true)
+          if [ -n "$MARKER" ] && [ -f "$MARKER" ]; then
+            SOURCE_BRANCH=$(jq -r '.branch // empty' "$MARKER")
+            if [ -n "$SOURCE_BRANCH" ]; then
+              echo "SOURCE_BRANCH=$SOURCE_BRANCH" >> "$GITHUB_ENV"
+              echo "Triggered by source branch: $SOURCE_BRANCH"
+            fi
+          fi
+
 
       - name: Setup Telegram Helper
         run: |
@@ -142,7 +602,7 @@ jobs:
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
           echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
-          if ! git clone --depth=1 -b ${{ github.event.client_payload.branch || github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
+          if ! git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
             echo "Kernel 6.12 repo empty or branch not found. Fetching ACK android16-6.12 directly..."
             git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
@@ -158,11 +618,11 @@ jobs:
           fi
 
           echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
-          git clone --depth=1 -b ${{ github.event.client_payload.branch || github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12.git sm4450-devicetrees
 
           echo "Cloning android_kernel_xiaomi_sm4450-modules-6.12..."
-          git clone --depth=1 -b ${{ github.event.client_payload.branch || github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ env.SOURCE_BRANCH || github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-modules-6.12.git sm4450-modules
 
           cd kernel
