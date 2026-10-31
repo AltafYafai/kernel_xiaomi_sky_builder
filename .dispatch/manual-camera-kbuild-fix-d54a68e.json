@@ -1,0 +1,6 @@
+{
+  "source_repository": "AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12",
+  "source_branch": "work/6.12-platform-port",
+  "source_commit": "d54a68e68555b26b58e6b68abc52949b0dfa517b",
+  "purpose": "Trigger builder after camera Kbuild O= path fix"
+}
