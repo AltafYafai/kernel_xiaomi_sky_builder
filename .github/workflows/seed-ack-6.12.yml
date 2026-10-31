@@ -1,0 +1,68 @@
+name: Seed Full Linux 6.12 ACK Repository
+
+on:
+  workflow_dispatch:
+    inputs:
+      TARGET_REPO:
+        description: 'Target GitHub Repository'
+        required: true
+        default: 'AltafYafai/android_kernel_xiaomi_sm4450-6.12'
+      TARGET_BRANCH:
+        description: 'Target Branch'
+        required: true
+        default: 'lineage-24.0-6.12'
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" 2>/dev/null || true
+
+      - name: Checkout Builder Repo
+        uses: actions/checkout@v4
+
+      - name: Clone Full ACK 6.12 from Google Source
+        run: |
+          echo "Cloning android16-6.12 full commit history from kernel/common..."
+          git clone --single-branch --branch android16-6.12 https://android.googlesource.com/kernel/common ack-6.12
+          cd ack-6.12
+          git status
+          git log -n 5 --oneline
+
+      - name: Prepare branches and vendor configs
+        run: |
+          cd ack-6.12
+          git config user.name "Altaf Yafai"
+          git config user.email "altaf.alu@gmail.com"
+
+          # Create target branch
+          git checkout -b ${{ github.event.inputs.TARGET_BRANCH }}
+          mkdir -p arch/arm64/configs/vendor
+          if [ -f "../scripts/sky_GKI.config" ]; then
+            cp ../scripts/sky_GKI.config arch/arm64/configs/vendor/sky_GKI.config
+          fi
+          if [ -f "../UPDATELOG.md" ]; then
+            cp ../UPDATELOG.md UPDATELOG.md
+          fi
+          git add arch/arm64/configs/vendor/sky_GKI.config UPDATELOG.md
+          git commit -m "arm64: configs: Add initial sky_GKI.config and UPDATELOG for Linux 6.12" || true
+
+      - name: Push to Target Repository
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          cd ack-6.12
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${{ github.event.inputs.TARGET_REPO }}.git"
+          git remote add target "$REMOTE_URL"
+
+          echo "Pushing upstream android16-6.12 branch with full history..."
+          git push -f target android16-6.12:refs/heads/android16-6.12
+
+          echo "Pushing target ${{ github.event.inputs.TARGET_BRANCH }} branch..."
+          git push -f -u target ${{ github.event.inputs.TARGET_BRANCH }}:refs/heads/${{ github.event.inputs.TARGET_BRANCH }}
+
+          echo "Setting default branch to ${{ github.event.inputs.TARGET_BRANCH }}..."
+          gh repo edit ${{ github.event.inputs.TARGET_REPO }} --default-branch ${{ github.event.inputs.TARGET_BRANCH }}
