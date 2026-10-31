@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - work/6.12-platform-port
+  repository_dispatch:
+    types:
+      - source-6.12-updated
   workflow_dispatch:
     inputs:
       KERNEL_BRANCH:
@@ -139,7 +142,7 @@ jobs:
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
           echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
-          if ! git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
+          if ! git clone --depth=1 -b ${{ github.event.client_payload.branch || github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
             echo "Kernel 6.12 repo empty or branch not found. Fetching ACK android16-6.12 directly..."
             git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
@@ -155,11 +158,11 @@ jobs:
           fi
 
           echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
-          git clone --depth=1 -b ${{ github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ github.event.client_payload.branch || github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12.git sm4450-devicetrees
 
           echo "Cloning android_kernel_xiaomi_sm4450-modules-6.12..."
-          git clone --depth=1 -b ${{ github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
+          git clone --depth=1 -b ${{ github.event.client_payload.branch || github.event.inputs.MODULES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-modules-6.12.git sm4450-modules
 
           cd kernel
