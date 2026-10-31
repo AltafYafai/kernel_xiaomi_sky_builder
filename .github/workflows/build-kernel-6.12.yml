@@ -136,8 +136,22 @@ jobs:
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
           echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
-          git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH }} \
-            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel
+          if ! git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH }} \
+            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
+            echo "Kernel 6.12 repo empty or branch not found. Bootstrapping ACK android16-6.12..."
+            git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
+            cd kernel
+            git checkout -b ${{ github.event.inputs.KERNEL_BRANCH }}
+            mkdir -p arch/arm64/configs/vendor
+            curl -s -o arch/arm64/configs/vendor/sky_GKI.config https://raw.githubusercontent.com/AltafYafai/kernel_xiaomi_sky/lineage-23.1/arch/arm64/configs/vendor/sky_GKI.config
+            git config user.name "Altaf Yafai"
+            git config user.email "altaf.alu@gmail.com"
+            git add arch/arm64/configs/vendor/sky_GKI.config
+            git commit -m "arm64: configs: Add initial sky_GKI.config for Linux 6.12"
+            echo "Pushing seeded lineage-24.0-6.12 branch to AltafYafai/android_kernel_xiaomi_sm4450-6.12..."
+            git push https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git ${{ github.event.inputs.KERNEL_BRANCH }}
+            cd ..
+          fi
 
           echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
           git clone --depth=1 -b ${{ github.event.inputs.DEVICETREES_BRANCH }} \
