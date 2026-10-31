@@ -1,5 +1,10 @@
 name: Build Xiaomi Sky Kernel 6.12 (lineage-24.0-6.12)
 
+# Keep only one Sky 6.12 build active; newer source pushes supersede older builds.
+concurrency:
+  group: sky-6.12-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
