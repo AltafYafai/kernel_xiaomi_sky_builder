@@ -34,6 +34,8 @@ jobs:
 
       - name: Checkout Builder Repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Resolve source branch from dispatch marker
         if: github.event_name == 'push'
