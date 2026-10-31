@@ -215,7 +215,7 @@ jobs:
 
           # Register Sky DTBs and the audio overlay at the qcom Kbuild level.
           # The parent .dtbo rule can compile audio/ravelin-audio-xiaomi-sky.dts.
-          printf "\n# Xiaomi Sky DTB and audio overlay targets\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb\ndtb-y += ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo\ndtb-y += ravelin-sky-4gb-overlay.dtbo\ndtb-y += audio/ravelin-audio-xiaomi-sky.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
+          printf "\n# Xiaomi Sky DTB and audio overlay targets\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb\ndtb-y += ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo\ndtb-y += ravelin-sky-4gb-overlay.dtbo\ndtb-y += audio/ravelin-audio-xiaomi-sky.dtbo\nalways-y += ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo audio/ravelin-audio-xiaomi-sky.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
 
           ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Linux 6.12 Build Failed!</b>%0A%0A<b>Run ID:</b> ${{ github.run_id }}%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Failed! See attached error log."
           ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log" || true
