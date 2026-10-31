@@ -223,12 +223,13 @@ jobs:
 
           echo "=== Verifying DTB Compilation ==="
           ls -la out/arch/arm64/boot/dts/qcom/*sky* 2>/dev/null || true
-          if [ ! -f out/arch/arm64/boot/dts/qcom/ravelin-sky-base.dtb ]; then
-            echo "FATAL ERROR: out/arch/arm64/boot/dts/qcom/ravelin-sky-base.dtb was not compiled!"
-            echo "Printing make.log DTB section:"
-            grep -E "DTC|dtb|DTS|error" make.log | tail -n 50
-            exit 1
-          fi
+          for dtb in ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb; do
+            if [ ! -s "out/arch/arm64/boot/dts/qcom/$dtb" ]; then
+              echo "FATAL ERROR: $dtb was not compiled!"
+              grep -E "DTC|dtb|DTS|error" make.log | tail -n 80
+              exit 1
+            fi
+          done
 
           echo "Compiling Linux 6.12 In-Tree Modules..."
           make -k -j$(nproc --all) O=out \
@@ -238,7 +239,7 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            modules 2>&1 | tee -a make.log || true
+            modules 2>&1 | tee -a make.log
 
           echo "Compiling Xiaomi Out-of-Tree Modules..."
           make -k -j$(nproc --all) -C $PWD O=out \
@@ -250,7 +251,7 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            modules 2>&1 | tee -a make.log || true
+            modules 2>&1 | tee -a make.log
 
           echo "Compiling Qualcomm Display Drivers (msm_drm)..."
           make -k -j$(nproc --all) -C $PWD O=out \
@@ -266,11 +267,19 @@ jobs:
             LLVM=1 \
             LLVM_IAS=1 \
             CROSS_COMPILE=aarch64-linux-gnu- \
-            modules 2>&1 | tee -a make.log || true
+            modules 2>&1 | tee -a make.log
 
           echo "=== COMPILED MODULES COUNT ==="
           find out ../sm4450-modules -name "*.ko" | wc -l
           find out ../sm4450-modules -name "*.ko" | head -n 30 || true
+
+          echo "=== REQUIRED SKY PLATFORM MODULES ==="
+          for module in pinctrl-parrot.ko pinctrl-ravelin.ko qnoc-parrot.ko qnoc-ravelin.ko gcc-parrot.ko dispcc-parrot.ko camcc-parrot.ko gpucc-parrot.ko debugcc-parrot.ko videocc-parrot.ko; do
+            if ! find out -name "$module" -print -quit | grep -q .; then
+              echo "FATAL ERROR: required platform module $module was not built"
+              exit 1
+            fi
+          done
 
           echo "=== CCACHE STATISTICS ==="
           ccache -s
@@ -304,14 +313,19 @@ jobs:
 
           echo "2. Generating dtbo-6.12.img..."
           SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
-          if [ -n "${SKY_DTBOS// }" ]; then
-            echo "Packing compiled DTBOs: $SKY_DTBOS"
-            python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS || true
+          for dtbo in ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo; do
+            if ! find kernel/out/arch/arm64/boot/dts -name "$dtbo" -print -quit | grep -q .; then
+              echo "FATAL ERROR: required compiled overlay $dtbo is missing"
+              exit 1
+            fi
+          done
+          if [ -z "${SKY_DTBOS// }" ]; then
+            echo "FATAL ERROR: no sky DTBOs were compiled; refusing to substitute a reference DTBO image"
+            exit 1
           fi
-          if [ ! -f artifacts/dtbo-6.12.img ] || [ ! -s artifacts/dtbo-6.12.img ]; then
-            echo "Using reference LineageOS dtbo.img..."
-            gh release download lineageos-24.0-reference -p "dtbo.img" -O artifacts/dtbo-6.12.img -R AltafYafai/kernel_xiaomi_sky_builder 2>/dev/null || true
-          fi
+          echo "Packing compiled DTBOs: $SKY_DTBOS"
+          python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS
+          test -s artifacts/dtbo-6.12.img
 
           echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
           bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
