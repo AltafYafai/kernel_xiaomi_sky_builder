@@ -283,6 +283,201 @@ jobs:
           print("Applied SM4450 secure-display SCM API port")
           PY
 
+          # Port the QTEE shared-memory bridge to the ACK 6.12 SCM API.
+          # This is a separate module: QCOM_SCM is configured as a module on Sky,
+          # so QTEE must follow it as a dependent module rather than being folded
+          # into the qcom-scm composite object.
+          mkdir -p drivers/firmware/qcom
+          curl --fail --location --retry 3 --silent --show-error \
+            "$HEADER_BASE/drivers/firmware/qtee_shmbridge.c" \
+            -o drivers/firmware/qcom/qtee_shmbridge.c
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          src_path = Path("drivers/firmware/qcom/qtee_shmbridge.c")
+          src = src_path.read_text()
+
+          def replace_once(old, new, label):
+              global src
+              count = src.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              src = src.replace(old, new, 1)
+
+          # Gunyah VMID handling and the vendor-only kernel-protection call are
+          # not part of the HLOS Sky configuration. Keep the HLOS VMID path.
+          for line in (
+              "#include <soc/qcom/qseecomi.h>\n",
+              "#include <linux/gunyah/gh_rm_drv.h>\n",
+              '#include "qtee_shmbridge_internal.h"\n',
+              "static bool support_hyp;\n",
+              "\tgh_vmid_t temp_vmid;\n",
+          ):
+              if line not in src:
+                  raise SystemExit(f"QTEE expected source fragment missing: {line.strip()}")
+              src = src.replace(line, "", 1)
+
+          replace_once(
+              "\tif (support_hyp) {\n\n"
+              "\t\t/* Calls to create SHMBridge from HLOS-VM is handled by QHEEBSP AC Layer while from\n"
+              "\t\t * secondary CPU-VMs, such as OEM-VM and QTVM, it is handled by Hypervisor RM.\n"
+              "\t\t * RM always expects the destination VM fields to be 0 and only expects the self\n"
+              "\t\t * owner bit to be set.\n"
+              "\t\t */\n\n"
+              "\t\tif (ns_vmid_num == 1) {\n"
+              "\t\t\tif (!gh_rm_get_this_vmid(&temp_vmid) &&\n"
+              "\t\t\t\t(temp_vmid == ns_vmid_list[0])) {\n\n"
+              "\t\t\t\tns_vmid_num = 0;\n"
+              "\t\t\t}\n"
+              "\t\t}\n"
+              "\t}\n\n",
+              "",
+              "remove unsupported hypervisor VMID branch")
+          replace_once(
+              "\tif (support_hyp) {\n"
+              "\t\tsize_and_flags |= SELF_OWNER_BIT << 1;\n"
+              "\t\tsize_and_flags |= (VM_PERM_R | VM_PERM_W) << 2;\n"
+              "\t}\n\n",
+              "",
+              "remove unsupported hypervisor permission flags")
+          replace_once(
+              "ret = qcom_scm_create_shm_bridge(pfn_and_ns_perm_flags,\n"
+              "\t\t\tipfn_and_s_perm_flags, size_and_flags, ns_vmids,\n"
+              "\t\t\thandle);",
+              "ret = qcom_scm_shm_bridge_create(default_bridge.dev,\n"
+              "\t\t\tpfn_and_ns_perm_flags, ipfn_and_s_perm_flags,\n"
+              "\t\t\tsize_and_flags, ns_vmids, handle);",
+              "use ACK 6.12 SCM create API")
+          replace_once("qcom_scm_delete_shm_bridge(handle)",
+                       "qcom_scm_shm_bridge_delete(default_bridge.dev, handle)",
+                       "use ACK 6.12 SCM delete API")
+          replace_once("qcom_scm_enable_shm_bridge()",
+                       "qcom_scm_shm_bridge_enable()",
+                       "use ACK 6.12 SCM enable API")
+
+          replace_once(
+              "\tuint32_t *ns_vm_ids;\n"
+              "\tuint32_t ns_vm_ids_hlos[] = {VMID_HLOS};\n"
+              "\tuint32_t ns_vm_ids_hyp[] = {};\n"
+              "\tuint32_t ns_vm_perms[] = {VM_PERM_R|VM_PERM_W};\n"
+              "\tint mem_protection_enabled = 0;\n\n"
+              "\tsupport_hyp = of_property_read_bool((&pdev->dev)->of_node,\n"
+              "\t\t\t\"qcom,support-hypervisor\");\n"
+              "\tif (support_hyp)\n"
+              "\t\tns_vm_ids = ns_vm_ids_hyp;\n"
+              "\telse\n"
+              "\t\tns_vm_ids = ns_vm_ids_hlos;\n",
+              "\tuint32_t ns_vm_ids[] = {VMID_HLOS};\n"
+              "\tuint32_t ns_vm_perms[] = {VM_PERM_R | VM_PERM_W};\n",
+              "use HLOS-only VMID configuration")
+          replace_once(
+              "\t/*register default bridge*/\n"
+              "\tif (support_hyp)\n"
+              "\t\tret = qtee_shmbridge_register(default_bridge.paddr,\n"
+              "\t\t\tdefault_bridge.size, ns_vm_ids,\n"
+              "\t\t\tns_vm_perms, 0, VM_PERM_R|VM_PERM_W,\n"
+              "\t\t\t&default_bridge.handle);\n"
+              "\telse\n"
+              "\t\tret = qtee_shmbridge_register(default_bridge.paddr,\n"
+              "\t\t\tdefault_bridge.size, ns_vm_ids,\n"
+              "\t\t\tns_vm_perms, 1, VM_PERM_R|VM_PERM_W,\n"
+              "\t\t\t&default_bridge.handle);",
+              "\t/* Register the default bridge for the HLOS VM. */\n"
+              "\tret = qtee_shmbridge_register(default_bridge.paddr,\n"
+              "\t\tdefault_bridge.size, ns_vm_ids, ns_vm_perms,\n"
+              "\t\tARRAY_SIZE(ns_vm_ids), VM_PERM_R | VM_PERM_W,\n"
+              "\t\t&default_bridge.handle);",
+              "register default bridge for HLOS")
+          replace_once(
+              "\tmem_protection_enabled = scm_mem_protection_init_do();\n"
+              "\tpr_err(\"MEM protection %s, %d\\n\",\n"
+              "\t\t\t(!mem_protection_enabled ? \"Enabled\" : \"Not enabled\"),\n"
+              "\t\t\tmem_protection_enabled);\n",
+              "",
+              "remove vendor-only kernel-protection hook")
+
+          # ACK's DMA API requires sync/unmap directions to match the original
+          # mapping. QTEE buffers are shared in both directions.
+          src = src.replace("DMA_TO_DEVICE);", "DMA_BIDIRECTIONAL);")
+          src = src.replace("DMA_FROM_DEVICE);", "DMA_BIDIRECTIONAL);")
+
+          replace_once(
+              "\tif (IS_ERR_OR_NULL(shm)) {\n"
+              "\t\tpr_err(\"qtee_shm is NULL\\n\");",
+              "\tif (!default_bridge.genpool)\n"
+              "\t\treturn -ENODEV;\n\n"
+              "\tif (IS_ERR_OR_NULL(shm)) {\n"
+              "\t\tpr_err(\"qtee_shm is NULL\\n\");",
+              "guard allocation before bridge probe")
+          replace_once(
+              "\tif (IS_ERR_OR_NULL(shm) || !shm->vaddr)\n"
+              "\t\treturn;",
+              "\tif (!default_bridge.genpool || IS_ERR_OR_NULL(shm) || !shm->vaddr)\n"
+              "\t\treturn;",
+              "guard free before bridge probe")
+
+          replace_once(
+              "#ifdef CONFIG_ARM64\n"
+              "\tdma_set_mask(&pdev->dev, DMA_BIT_MASK(64));\n"
+              "#endif\n"
+              "\treturn qtee_shmbridge_init(pdev);",
+              "#ifdef CONFIG_ARM64\n"
+              "\tint ret = dma_set_mask(&pdev->dev, DMA_BIT_MASK(64));\n"
+              "\tif (ret)\n"
+              "\t\treturn ret;\n"
+              "#endif\n"
+              "\treturn qtee_shmbridge_init(pdev);",
+              "check DMA mask setup")
+          replace_once(
+              "int qtee_shmbridge_driver_init(void)\n"
+              "{\n"
+              "\treturn platform_driver_register(&qtee_shmbridge_driver);\n"
+              "}\n\n"
+              "void qtee_shmbridge_driver_exit(void)\n"
+              "{\n"
+              "\tplatform_driver_unregister(&qtee_shmbridge_driver);\n"
+              "}",
+              "module_platform_driver(qtee_shmbridge_driver);",
+              "register QTEE as a dependent module")
+
+          src_path.write_text(src)
+
+          kconfig_path = Path("drivers/firmware/qcom/Kconfig")
+          kconfig = kconfig_path.read_text()
+          config_marker = "config QCOM_TZMEM\n"
+          qtee_config = (
+              "config QTEE_SHM_BRIDGE\n"
+              "\ttristate \"Qualcomm TEE shared memory bridge\"\n"
+              "\tdepends on QCOM_SCM && OF\n"
+              "\thelp\n"
+              "\t  Enable the Qualcomm TEE shared-memory bridge used by\n"
+              "\t  vendor display and secure-memory clients.\n\n"
+          )
+          if "config QTEE_SHM_BRIDGE" not in kconfig:
+              if kconfig.count(config_marker) != 1:
+                  raise SystemExit("QCOM Kconfig insertion point not found")
+              kconfig = kconfig.replace(config_marker, qtee_config + config_marker, 1)
+              kconfig_path.write_text(kconfig)
+
+          makefile_path = Path("drivers/firmware/qcom/Makefile")
+          makefile = makefile_path.read_text()
+          make_marker = "obj-$(CONFIG_QCOM_TZMEM)\t+= qcom_tzmem.o\n"
+          qtee_object = "obj-$(CONFIG_QTEE_SHM_BRIDGE)\t+= qtee_shmbridge.o\n"
+          if "qtee_shmbridge.o" not in makefile:
+              if make_marker not in makefile:
+                  raise SystemExit("QCOM Makefile insertion point not found")
+              makefile = makefile.replace(make_marker, qtee_object + make_marker, 1)
+              makefile_path.write_text(makefile)
+
+          config_path = Path("arch/arm64/configs/vendor/sky_GKI.config")
+          config = config_path.read_text()
+          if "CONFIG_QTEE_SHM_BRIDGE=" not in config:
+              config_path.write_text(config.rstrip() + "\nCONFIG_QTEE_SHM_BRIDGE=m\n")
+
+          print("QTEE SHM bridge ported to ACK 6.12 SCM API and enabled as a dependent module")
+          PY
+
           # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees.
           # ACK 6.12 does not guarantee that the destination directory exists.
           if [ -d "../sm4450-devicetrees/include/dt-bindings" ]; then
