@@ -374,13 +374,18 @@ jobs:
 
           mem_buf_dev = Path("drivers/soc/qcom/mem_buf/mem-buf-dev.c")
           data = mem_buf_dev.read_text()
-          old_remove = ("static int mem_buf_remove(struct platform_device *pdev)\n"
-                        "{\n\tmem_buf_dev = NULL;\n\treturn 0;\n}")
-          new_remove = ("static void mem_buf_remove(struct platform_device *pdev)\n"
-                        "{\n\tmem_buf_dev = NULL;\n}")
-          if data.count(old_remove) != 1:
-              raise SystemExit("mem-buf: expected legacy platform remove callback not found exactly once")
-          mem_buf_dev.write_text(data.replace(old_remove, new_remove, 1))
+          import re
+          remove_pattern = (r"static int mem_buf_remove\(struct platform_device \*pdev\)"
+                            r"\s*\{\s*mem_buf_dev = NULL;\s*return 0;\s*\}")
+          data, remove_count = re.subn(
+              remove_pattern,
+              "static void mem_buf_remove(struct platform_device *pdev)\\n{\\n\\tmem_buf_dev = NULL;\\n}",
+              data,
+              count=1,
+          )
+          if remove_count != 1:
+              raise SystemExit("mem-buf: could not identify the legacy remove callback body")
+          mem_buf_dev.write_text(data)
 
           # Restore the real Qualcomm Command DB standalone-state API. ACK's
           # implementation lacks this vendor extension, so implement it using
