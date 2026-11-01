@@ -126,7 +126,13 @@ fi
 echo "Repacking vendor_boot.img with mkbootimg.py..."
 python3 "$SCRIPT_DIR/mkbootimg.py" "${MKBOOT_ARGS[@]}"
 
-truncate -s 100663296 "$OUTPUT_IMG"
+echo "Adding AVB hash footer to $OUTPUT_IMG..."
+python3 "$SCRIPT_DIR/avbtool.py" add_hash_footer \
+  --image "$OUTPUT_IMG" \
+  --partition_size 100663296 \
+  --partition_name vendor_boot \
+  --algorithm NONE
+
 echo "vendor_boot.img generated successfully at $OUTPUT_IMG ($(ls -lh "$OUTPUT_IMG" | awk '{print $5}'))"
 
 echo "Verifying generated vendor_boot structure..."

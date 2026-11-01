@@ -201,6 +201,22 @@
   3. Bundled `vbmeta.img` with AVB verification disabled (Flags `0x3`) in `fastboot_bundle` with automatic flashing commands in `flash.sh` and `flash.bat`.
   4. Removed incomplete `AnyKernel3/dtb` generation to prevent recovery flashers from replacing the GKI `vendor_boot.img` DTB table.
 
+### Bringup Run (`41339255712`) - AVB Footer Abort Root Cause & Resolution
+* **Triggered:** 2026-11-01 18:57 UTC
+* **Result:** ⚠️ Device powered off ~0.5s after displaying the Mi splash logo; `/sys/fs/pstore` was verified completely empty in Recovery.
+* **Root Cause Diagnostics:**
+  1. **Empty pstore Indication:**
+     - The absence of any `console-ramoops` or `dmesg-ramoops` proved the kernel never reached `start_kernel()` or even early `setup_arch()`.
+     - The abort occurred strictly inside Qualcomm ABL before jumping to the kernel image.
+  2. **AVB Footer (`AVBf`) Audit:**
+     - Comparison with reference LineageOS images revealed that `boot.img` and `vendor_boot.img` contained official `AVBf` footers at offset `partition_size - 64`.
+     - `build_boot.sh` and `build_vendor_boot.sh` previously used `truncate -s 100663296` to pad images with zeroes (`0x00`), leaving both images without an AVB footer.
+     - Qualcomm ABL's `avb_slot_verify` failed with invalid partition metadata when reading the zeroed tail, immediately halting boot and killing PMIC power rails.
+* **Fix Action:**
+  1. Integrated official `scripts/avbtool.py` into builder tooling.
+  2. Updated `scripts/build_boot.sh` and `scripts/build_vendor_boot.sh` to execute `avbtool add_hash_footer --partition_size 100663296 --algorithm NONE` instead of raw `truncate`.
+  3. Ensured every generated boot and vendor_boot image contains a valid `AVBf` footer and sha256 hash descriptor.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)

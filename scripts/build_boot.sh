@@ -46,5 +46,11 @@ python3 "$SCRIPT_DIR/mkbootimg.py" \
   --os_patch_level "$OS_PATCH_LEVEL" \
   --output "$OUTPUT_IMG"
 
-truncate -s 100663296 "$OUTPUT_IMG"
+echo "Adding AVB hash footer to $OUTPUT_IMG..."
+python3 "$SCRIPT_DIR/avbtool.py" add_hash_footer \
+  --image "$OUTPUT_IMG" \
+  --partition_size 100663296 \
+  --partition_name boot \
+  --algorithm NONE
+
 echo "boot.img generated successfully at $OUTPUT_IMG ($(ls -lh "$OUTPUT_IMG" | awk '{print $5}'))"
