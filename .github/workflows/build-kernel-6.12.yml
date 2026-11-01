@@ -276,6 +276,7 @@ jobs:
           drivers/iommu/qcom-io-pgtable-alloc.h
           drivers/iommu/io-pgtable-fast.c
           drivers/iommu/dma-mapping-fast.c
+          drivers/dma-buf/heaps/qcom_sg_ops.h
           include/linux/pinctrl/qcom-pinctrl.h
           include/linux/soc/qcom/spmi-pmic-arb.h
           include/linux/mem-buf.h
@@ -283,6 +284,7 @@ jobs:
           include/linux/mem-buf-altmap.h
           include/uapi/linux/mem-buf.h
           include/linux/dma-mapping-fast.h
+          include/linux/io-pgtable-fast.h
           include/linux/qcom-io-pgtable.h
           include/linux/qcom-iommu-util.h
           include/soc/qcom/rpmh.h
@@ -293,7 +295,35 @@ jobs:
           include/trace/hooks/iommu.h
           VENDOR_FILES
 
-          # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
+          # Adapt downstream Qualcomm providers to the Android 16 / Linux
+          # 6.12 interfaces before compiling them as external modules.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          mem_buf = Path("drivers/soc/qcom/mem_buf/mem-buf.c")
+          data = mem_buf.read_text()
+          old = "static int mem_buf_msgq_remove(struct platform_device *pdev)"
+          if old in data:
+              data = data.replace(old, "static void mem_buf_msgq_remove(struct platform_device *pdev)", 1)
+              old_return = "\tmem_buf_msgq_free(&pdev->dev);\n\treturn 0;\n}"
+              if old_return not in data:
+                  raise SystemExit("mem-buf: expected legacy remove callback body not found")
+              data = data.replace(old_return, "\tmem_buf_msgq_free(&pdev->dev);\n}", 1)
+              mem_buf.write_text(data)
+
+          pgtable = Path("drivers/iommu/qcom-io-pgtable-alloc.c")
+          data = pgtable.read_text()
+          old_register = "return register_shrinker(&io_pgtable_alloc_shrinker, \"io_pgtable_alloc\");"
+          if old_register in data:
+              data = data.replace(old_register, "shrinker_register(&io_pgtable_alloc_shrinker);\n\treturn 0;", 1)
+          data = data.replace("unregister_shrinker(&io_pgtable_alloc_shrinker);",
+                              "shrinker_unregister(&io_pgtable_alloc_shrinker);")
+          if "register_shrinker(" in data or "unregister_shrinker(" in data:
+              raise SystemExit("qcom io-pgtable: legacy shrinker API remains")
+          pgtable.write_text(data)
+          PY
+
+           # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
           # restricted hook imported above. Preserve the actual DMA range.
           # ACK android16-6.12 keeps the legacy one-argument setup API.
           # The Qualcomm restricted hook needs the DMA aperture; pass the
