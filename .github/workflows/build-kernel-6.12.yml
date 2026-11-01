@@ -247,7 +247,7 @@ jobs:
               if marker not in api:
                   raise SystemExit("ACK SCM public header insertion point not found")
               api = api.replace(marker,
-                  "int qcom_scm_mem_protect_sd_ctrl(u32 devid, phys_addr_t mem_addr, u64 mem_size, u32 vmid);\\n" + marker, 1)
+                  "int qcom_scm_mem_protect_sd_ctrl(u32 devid, phys_addr_t mem_addr, u64 mem_size, u32 vmid);\n" + marker, 1)
               scm_h.write_text(api)
           if "qcom_scm_mem_protect_sd_ctrl(" not in src:
               if marker not in src:
