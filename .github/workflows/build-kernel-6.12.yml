@@ -200,9 +200,15 @@ jobs:
             cp -rf ../sm4450-devicetrees/include/dt-bindings/. include/dt-bindings/
           fi
 
-          # Setup devicetrees directly inside arch/arm64/boot/dts/qcom
+          # ACK/GKI 6.12 may not ship a Qualcomm DTS directory. Create the
+          # destination explicitly before importing the matching SM4450 DTS tree.
           echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
-          cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
+          test -f ../sm4450-devicetrees/qcom/Makefile || {
+            echo "FATAL ERROR: SM4450 devicetree source is missing qcom/Makefile"
+            exit 1
+          }
+          mkdir -p arch/arm64/boot/dts/qcom
+          cp -a ../sm4450-devicetrees/qcom/. arch/arm64/boot/dts/qcom/
 
           # Do not recurse into audio/: its Kbuild is an external-DT wrapper and
           # the recursive sub-make does not inherit scripts/Makefile.dtbs rules.
