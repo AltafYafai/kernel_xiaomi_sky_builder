@@ -241,6 +241,11 @@ jobs:
           mkdir -p arch/arm64/boot/dts/qcom
           cp -a ../sm4450-devicetrees/qcom/. arch/arm64/boot/dts/qcom/
 
+          # bt/Makefile is an external-DTS wrapper, not the in-tree Kbuild.
+          # Its presence masks bt/Kbuild and leaves dtbo-y targets without rules.
+          # Use the in-tree Kbuild for the Qualcomm Bluetooth DTS overlays.
+          rm -f arch/arm64/boot/dts/qcom/bt/Makefile
+
           # Do not recurse into audio/: its Kbuild is an external-DT wrapper and
           # the recursive sub-make does not inherit scripts/Makefile.dtbs rules.
           # Build the Sky audio overlay from the qcom parent Kbuild instead.
