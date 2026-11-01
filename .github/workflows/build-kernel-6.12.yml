@@ -238,7 +238,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          scm_c = Path("drivers/firmware/qcom_scm.c")
+          scm_c = Path("drivers/firmware/qcom/qcom_scm.c")
           scm_h = Path("include/linux/firmware/qcom/qcom_scm.h")
           src = scm_c.read_text()
           api = scm_h.read_text()
