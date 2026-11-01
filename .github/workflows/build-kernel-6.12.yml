@@ -245,14 +245,17 @@ jobs:
           # files together. The wrappers mask the in-tree Kbuild and invoke the
           # external-DTS flow, which ACK's dtbs recursion cannot use. Keep each
           # directory's in-tree Kbuild and adapt vendor .dts overlays to the
-          # .dtso source suffix consumed by ACK 6.12's DTBO pattern rule.
+          # .dtso source suffix consumed by ACK 6.12's DTBO pattern rule. Some
+          # vendor Kbuilds reference overlays in nested paths (for example
+          # display/display/*.dtbo), so conversion must recurse below each
+          # Qualcomm DTS subdirectory rather than checking only its top level.
           while IFS= read -r kbuild; do
             dir="${kbuild%/Kbuild}"
             if [ -f "$dir/Makefile" ]; then
               echo "Removing external-DTS wrapper: $dir/Makefile"
               rm -f "$dir/Makefile"
             fi
-            find "$dir" -maxdepth 1 -type f -name '*.dts' -print0 |
+            find "$dir" -type f -name '*.dts' -print0 |
               while IFS= read -r -d '' dts; do
                 dtso="${dts%.dts}.dtso"
                 [ -e "$dtso" ] || cp "$dts" "$dtso"
