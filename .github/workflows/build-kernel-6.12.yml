@@ -634,6 +634,7 @@ jobs:
           make -k -j$(nproc --all) -C $PWD O=out \
             M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
             DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
+            KBUILD_EXTRA_SYMBOLS="$XIAOMI_SYMVERS" \
             EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/qcom/opensource/display-drivers/include) -I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
             CONFIG_ARCH_RAVELIN=y \
             KERNEL_SRC=$PWD \
