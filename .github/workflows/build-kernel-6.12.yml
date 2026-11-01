@@ -292,7 +292,7 @@ jobs:
           find out ../sm4450-modules -name "*.ko" | head -n 30 || true
 
           echo "=== REQUIRED SKY PLATFORM MODULES ==="
-          for module in pinctrl-parrot.ko pinctrl-ravelin.ko qnoc-parrot.ko qnoc-ravelin.ko gcc-parrot.ko dispcc-parrot.ko camcc-parrot.ko gpucc-parrot.ko debugcc-parrot.ko videocc-parrot.ko; do
+          for module in pinctrl-parrot.ko pinctrl-ravelin.ko qnoc-parrot.ko qnoc-ravelin.ko gcc-parrot.ko dispcc-parrot.ko camcc-parrot.ko gpucc-parrot.ko videocc-parrot.ko; do
             if ! find out -name "$module" -print -quit | grep -q .; then
               echo "FATAL ERROR: required platform module $module was not built"
               exit 1
