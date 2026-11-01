@@ -467,8 +467,8 @@ jobs:
 
           # This vendor source is converted into a loadable module. Add the
           # module metadata required by Linux 6.12 MODPOST at file scope.
-          src += '\nMODULE_DESCRIPTION("Qualcomm TEE shared memory bridge");\\n'
-          src += 'MODULE_LICENSE("GPL v2");\\n'
+          src += '\nMODULE_DESCRIPTION("Qualcomm TEE shared memory bridge");\n'
+          src += 'MODULE_LICENSE("GPL v2");\n'
 
           src_path.write_text(src)
 
