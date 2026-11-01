@@ -295,7 +295,10 @@ jobs:
 
           # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
           # restricted hook imported above. Preserve the actual DMA range.
-          python3 -c 'from pathlib import Path; p=Path("drivers/iommu/dma-iommu.c"); s=p.read_text(); old="trace_android_rvh_iommu_setup_dma_ops(dev);"; new="trace_android_rvh_iommu_setup_dma_ops(dev, dma_base, dma_limit);"; assert s.count(old)==1, f"Expected one old IOMMU hook call, found {s.count(old)}"; assert "void iommu_setup_dma_ops(struct device *dev, u64 dma_base, u64 dma_limit)" in s, "Unexpected ACK IOMMU setup signature"; p.write_text(s.replace(old,new,1)); print("Fixed Qualcomm IOMMU hook arguments")'
+          # ACK android16-6.12 keeps the legacy one-argument setup API.
+          # The Qualcomm restricted hook needs the DMA aperture; pass the
+          # domain's actual aperture bounds rather than fabricated constants.
+          python3 -c 'from pathlib import Path; p=Path("drivers/iommu/dma-iommu.c"); s=p.read_text(); old="trace_android_rvh_iommu_setup_dma_ops(dev);"; new="trace_android_rvh_iommu_setup_dma_ops(dev, domain->geometry.aperture_start, domain->geometry.aperture_end);"; assert s.count(old)==1, f"Expected one old IOMMU hook call, found {s.count(old)}"; assert "void iommu_setup_dma_ops(struct device *dev)" in s, "Unexpected ACK android16-6.12 IOMMU setup API"; assert "iommu_dma_init_domain(domain, dev)" in s, "Expected legacy domain initialization is missing"; p.write_text(s.replace(old,new,1)); print("Adapted Qualcomm IOMMU hook to the ACK DMA aperture")'
 
           # Register the vendor memory-buffer and IOMMU providers in ACK's build graph.
           python3 - <<'PY'
