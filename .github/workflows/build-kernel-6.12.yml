@@ -241,19 +241,23 @@ jobs:
           mkdir -p arch/arm64/boot/dts/qcom
           cp -a ../sm4450-devicetrees/qcom/. arch/arm64/boot/dts/qcom/
 
-          # bt/Makefile is an external-DTS wrapper, not the in-tree Kbuild.
-          # Its presence masks bt/Kbuild and leaves dtbo-y targets without rules.
-          # Use the in-tree Kbuild for the Qualcomm Bluetooth DTS overlays.
-          rm -f arch/arm64/boot/dts/qcom/bt/Makefile
-
-          # ACK's in-tree DTBO rule consumes .dtso sources, while this Qualcomm
-          # vendor tree stores Bluetooth overlays as .dts. Provide build-local
-          # .dtso aliases so every selected bt/Kbuild dtbo-y target has a source.
-          for dts in arch/arm64/boot/dts/qcom/bt/*.dts; do
-            [ -f "$dts" ] || continue
-            dtso="${dts%.dts}.dtso"
-            [ -e "$dtso" ] || cp "$dts" "$dtso"
-          done
+          # Qualcomm vendor DTS subdirectories ship wrapper Makefiles and Kbuild
+          # files together. The wrappers mask the in-tree Kbuild and invoke the
+          # external-DTS flow, which ACK's dtbs recursion cannot use. Keep each
+          # directory's in-tree Kbuild and adapt vendor .dts overlays to the
+          # .dtso source suffix consumed by ACK 6.12's DTBO pattern rule.
+          while IFS= read -r kbuild; do
+            dir="${kbuild%/Kbuild}"
+            if [ -f "$dir/Makefile" ]; then
+              echo "Removing external-DTS wrapper: $dir/Makefile"
+              rm -f "$dir/Makefile"
+            fi
+            find "$dir" -maxdepth 1 -type f -name '*.dts' -print0 |
+              while IFS= read -r -d '' dts; do
+                dtso="${dts%.dts}.dtso"
+                [ -e "$dtso" ] || cp "$dts" "$dtso"
+              done
+          done < <(find arch/arm64/boot/dts/qcom -mindepth 2 -maxdepth 2 -type f -name Kbuild -print)
 
           # Do not recurse into audio/: its Kbuild is an external-DT wrapper and
           # the recursive sub-make does not inherit scripts/Makefile.dtbs rules.
