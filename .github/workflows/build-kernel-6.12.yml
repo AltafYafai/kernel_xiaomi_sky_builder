@@ -202,20 +202,294 @@ jobs:
           echo "Setting up Devicetrees inside arch/arm64/boot/dts/qcom..."
           cp -r ../sm4450-devicetrees/qcom/* arch/arm64/boot/dts/qcom/
 
-          # The vendor audio directory has an external-module Makefile and a child Kbuild.
-          # ACK 6.12's scripts/Makefile.dtbs rules are scoped to this qcom directory;
-          # descending into audio/ asks the child Kbuild for a nested .dtbo target
-          # for which no pattern rule is defined. Build the Sky audio overlay from
-          # the qcom parent instead, where %.dtbo <- %.dts is available.
-          rm -f arch/arm64/boot/dts/qcom/audio/Makefile
+          # Do not recurse into audio/: its Kbuild is an external-DT wrapper and
+          # the recursive sub-make does not inherit scripts/Makefile.dtbs rules.
+          # Build the Sky audio overlay from the qcom parent Kbuild instead.
           sed -i 's/^subdir-y[[:space:]]*+=[[:space:]]*audio[[:space:]]*/subdir-y += /' arch/arm64/boot/dts/qcom/Makefile
 
-          # Add audio-kernel headers required by vendor audio DTS includes.
+          # Vendor audio DTS includes are supplied by the matching modules checkout.
           printf '\nDTC_INCLUDE += $(srctree)/../sm4450-modules/qcom/opensource/audio-kernel/include\n' >> arch/arm64/boot/dts/qcom/Makefile
 
-          # Register Sky DTBs and the audio overlay at the qcom Kbuild level.
-          # The parent .dtbo rule can compile audio/ravelin-audio-xiaomi-sky.dts.
-          printf "\n# Xiaomi Sky DTB and audio overlay targets\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb\ndtb-y += ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo\ndtb-y += ravelin-sky-4gb-overlay.dtbo\ndtb-y += audio/ravelin-audio-xiaomi-sky.dtbo\nalways-y += ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo audio/ravelin-audio-xiaomi-sky.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
+          # Register Sky DTBs and audio overlay in the parent qcom build.
+          printf "\n# Xiaomi Sky DTB and audio overlay targets\nDTC_FLAGS += -@\ndtb-y += ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb\ndtb-y += ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo\ndtb-y += audio/ravelin-audio-xiaomi-sky.dtbo\nalways-y += ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo audio/ravelin-audio-xiaomi-sky.dtbo\n" >> arch/arm64/boot/dts/qcom/Makefile
+
+          # Ensure arch/arm64/boot/dts/Makefile descends into qcom
+          echo 'subdir-y += qcom' > arch/arm64/boot/dts/Makefile
+          rm -rf arch/arm64/boot/dts/vendor
+
+          mkdir -p out
+          echo "Configuring gki_defconfig..."
+          make O=out ARCH=arm64 LLVM=1 gki_defconfig
+
+          echo "Merging vendor sky_GKI.config..."
+          ./scripts/kconfig/merge_config.sh -m -O out out/.config arch/arm64/configs/vendor/sky_GKI.config
+          make O=out ARCH=arm64 LLVM=1 olddefconfig
+
+          echo "Compiling Linux 6.12 Kernel Image and DTBs..."
+          set -o pipefail
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            DTC_FLAGS="-@" \
+            CONFIG_XIAOMI_DEVICE_DTBS=y \
+            CONFIG_SKY_DTB=y \
+            Image dtbs 2>&1 | tee make.log
+
+          echo "=== Verifying DTB Compilation ==="
+          ls -la out/arch/arm64/boot/dts/qcom/*sky* 2>/dev/null || true
+          for dtb in ravelin-sky-base.dtb ravelin-sky-4gb-base.dtb; do
+            if [ ! -s "out/arch/arm64/boot/dts/qcom/$dtb" ]; then
+              echo "FATAL ERROR: $dtb was not compiled!"
+              grep -E "DTC|dtb|DTS|error" make.log | tail -n 80
+              exit 1
+            fi
+          done
+
+          echo "Compiling Linux 6.12 In-Tree Modules..."
+          make -k -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log
+
+          echo "Compiling Xiaomi Out-of-Tree Modules..."
+          make -k -j$(nproc --all) -C $PWD O=out \
+            M=$(realpath ../sm4450-modules/xiaomi) \
+            EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log
+
+          echo "Compiling Qualcomm Display Drivers (msm_drm)..."
+          make -k -j$(nproc --all) -C $PWD O=out \
+            M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
+            DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
+            EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/qcom/opensource/display-drivers/include) -I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
+            CONFIG_ARCH_RAVELIN=y \
+            KERNEL_SRC=$PWD \
+            KERNEL_ROOT=$PWD \
+            ARCH=arm64 \
+            CC="ccache clang" \
+            HOSTCC="ccache clang" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            modules 2>&1 | tee -a make.log
+
+          echo "=== COMPILED MODULES COUNT ==="
+          find out ../sm4450-modules -name "*.ko" | wc -l
+          find out ../sm4450-modules -name "*.ko" | head -n 30 || true
+
+          echo "=== REQUIRED SKY PLATFORM MODULES ==="
+          for module in pinctrl-parrot.ko pinctrl-ravelin.ko qnoc-parrot.ko qnoc-ravelin.ko gcc-parrot.ko dispcc-parrot.ko camcc-parrot.ko gpucc-parrot.ko debugcc-parrot.ko videocc-parrot.ko; do
+            if ! find out -name "$module" -print -quit | grep -q .; then
+              echo "FATAL ERROR: required platform module $module was not built"
+              exit 1
+            fi
+          done
+
+          echo "=== CCACHE STATISTICS ==="
+          ccache -s
+
+          if [ ! -f out/arch/arm64/boot/Image ]; then
+            echo "ERROR: Kernel Image (out/arch/arm64/boot/Image) was not generated!"
+            exit 1
+          fi
+
+      - name: Save Ccache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-kernel-6.12-ccache-${{ github.run_id }}
+
+      - name: Package Boot, Vendor Boot & DTBO Images (85%)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [████████░░] 85%%0A<b>Step:</b> Building boot, vendor_boot, and dtbo images..." || true
+          cd workspace
+          mkdir -p artifacts
+
+          echo "1. Generating header v4 boot-6.12.img..."
+          bash ../scripts/build_boot.sh kernel/out/arch/arm64/boot/Image artifacts/boot-6.12.img
+
+          echo "2. Generating dtbo-6.12.img..."
+          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
+          for dtbo in ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo; do
+            if ! find kernel/out/arch/arm64/boot/dts -name "$dtbo" -print -quit | grep -q .; then
+              echo "FATAL ERROR: required compiled overlay $dtbo is missing"
+              exit 1
+            fi
+          done
+          if [ -z "${SKY_DTBOS// }" ]; then
+            echo "FATAL ERROR: no sky DTBOs were compiled; refusing to substitute a reference DTBO image"
+            exit 1
+          fi
+          echo "Packing compiled DTBOs: $SKY_DTBOS"
+          python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS
+          test -s artifacts/dtbo-6.12.img
+
+          echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
+          bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
+
+          ls -lh artifacts/
+
+      - name: Prepare AnyKernel3 Zip & Fastboot Bundle (95%)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>🔨 Xiaomi Sky Linux 6.12 Build</b>%0A%0A<b>Progress:</b> [█████████░] 95%%0A<b>Step:</b> Packaging AnyKernel3 & Fastboot flashables..." || true
+          cd workspace
+          git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
+
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/
+          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img AnyKernel3/dtbo.img
+          [ -f artifacts/vendor_boot-6.12.img ] && cp artifacts/vendor_boot-6.12.img AnyKernel3/vendor_boot.img
+
+          # Flatten base Sky device trees
+          find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
+          [ -s AnyKernel3/dtb ] || rm -f AnyKernel3/dtb
+
+          # Collect all compiled hardware modules (.ko)
+          mkdir -p AnyKernel3/modules
+          find kernel/out sm4450-modules -name "*.ko" -exec cp {} AnyKernel3/modules/ \; || true
+          llvm-strip --strip-debug AnyKernel3/modules/*.ko 2>/dev/null || true
+
+          cd AnyKernel3
+          sed -i 's/kernel.string=.*/kernel.string=Sky Linux 6.12 LTS Kernel for Redmi 12 5G/' anykernel.sh
+          sed -i 's/device.name1=.*/device.name1=sky/' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=redmi12_5g/' anykernel.sh
+          sed -i 's/block=.*/block=boot;/' anykernel.sh
+          sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
+
+          # Inject flash_generic vendor_boot and flash_dtbo triggers
+          if ! grep -q "flash_generic vendor_boot" anykernel.sh; then
+            sed -i '/## end boot install/i [ -f vendor_boot.img ] \&\& flash_generic vendor_boot' anykernel.sh
+          fi
+          if ! grep -q "flash_dtbo" anykernel.sh; then
+            sed -i '/## end boot install/i [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
+          fi
+
+          zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
+          cd ..
+
+          # Create Fastboot flashing package
+          mkdir -p fastboot_bundle
+          cp artifacts/boot-6.12.img fastboot_bundle/boot.img
+          cp artifacts/vendor_boot-6.12.img fastboot_bundle/vendor_boot.img
+          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img fastboot_bundle/dtbo.img
+
+          cat << 'EOF' > fastboot_bundle/flash.sh
+          #!/usr/bin/env bash
+          set -e
+          echo "=== Flashing Sky Linux 6.12 Kernel ==="
+          fastboot flash boot boot.img
+          fastboot flash vendor_boot vendor_boot.img
+          [ -f dtbo.img ] && fastboot flash dtbo dtbo.img
+          echo "=== Flashing Complete! Rebooting... ==="
+          fastboot reboot
+          EOF
+          chmod +x fastboot_bundle/flash.sh
+
+          cat << 'EOF' > fastboot_bundle/flash.bat
+          @echo off
+          echo === Flashing Sky Linux 6.12 Kernel ===
+          fastboot flash boot boot.img
+          fastboot flash vendor_boot vendor_boot.img
+          if exist dtbo.img fastboot flash dtbo dtbo.img
+          echo === Flashing Complete! Rebooting... ===
+          fastboot reboot
+          EOF
+
+          cd fastboot_bundle
+          zip -r9 ../sky-fastboot-6.12-${{ env.KERNEL_REV }}.zip *
+          cd ..
+
+          cp artifacts/*.img .
+
+      - name: Upload Artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: sky-kernel-6.12-${{ env.KERNEL_REV }}
+          path: |
+            workspace/sky-kernel-6.12-*.zip
+            workspace/sky-fastboot-6.12-*.zip
+            workspace/*.img
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
+        run: |
+          TAG_NAME="sky-6.12-${{ env.KERNEL_REV }}-$(date +%Y%m%d-%H%M)"
+          echo "Publishing GitHub release $TAG_NAME..."
+          gh release create "$TAG_NAME" \
+            workspace/sky-kernel-6.12-*.zip \
+            workspace/sky-fastboot-6.12-*.zip \
+            workspace/*.img \
+            --title "Sky Linux 6.12 Kernel ($TAG_NAME)" \
+            --notes "Linux 6.12 GKI LTS build for Xiaomi Redmi 12 5G / POCO M6 Pro 5G (sky). Includes AnyKernel3 recovery zip, 1-click Fastboot bundle, boot, vendor_boot (with 6.12 modules and DTBs), and dtbo images." || true
+
+      - name: Notify Build Complete (100%)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          ./.telegram/tg.sh update "<b>✅ Xiaomi Sky Linux 6.12 Kernel Build Completed!</b>%0A%0A<b>Progress:</b> [██████████] 100%%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Success! Uploading packages..." || true
+          ZIP_FILE=$(ls workspace/sky-kernel-6.12-*.zip 2>/dev/null | head -n1)
+          if [ -f "$ZIP_FILE" ]; then
+            ./.telegram/tg.sh send_document "$ZIP_FILE" "<b>📦 Flashable Recovery Zip:</b> $(basename $ZIP_FILE)" || true
+          fi
+          FASTBOOT_ZIP=$(ls workspace/sky-fastboot-6.12-*.zip 2>/dev/null | head -n1)
+          if [ -f "$FASTBOOT_ZIP" ]; then
+            ./.telegram/tg.sh send_document "$FASTBOOT_ZIP" "<b>⚡ Fastboot Flash Package:</b> $(basename $FASTBOOT_ZIP)" || true
+          fi
+
+      - name: Handle Build Failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          INPUT_TELEGRAM_CHAT_ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID }}
+        run: |
+          mkdir -p /tmp/logs
+          LOG_FILE="/tmp/logs/build_error_${{ github.run_id }}.log"
+          
+          echo "=== BUILD FAILURE LOG REPORT ===" > "$LOG_FILE"
+          echo "Run ID: ${{ github.run_id }}" >> "$LOG_FILE"
+          echo "Workflow: ${{ github.workflow }}" >> "$LOG_FILE"
+          echo "Commit: ${{ env.KERNEL_REV }}" >> "$LOG_FILE"
+          echo "Timestamp: $(date -u)" >> "$LOG_FILE"
+          echo -e "\n=== ERROR DETAILS ===" >> "$LOG_FILE"
+          
+          if [ -f workspace/kernel/make.log ]; then
+            tail -n 250 workspace/kernel/make.log >> "$LOG_FILE"
+          elif [ -f workspace/kernel/out/make.log ]; then
+            tail -n 250 workspace/kernel/out/make.log >> "$LOG_FILE"
+          else
+            echo "Step failed before compilation log creation." >> "$LOG_FILE"
+          fi
 
           ./.telegram/tg.sh update "<b>❌ Xiaomi Sky Linux 6.12 Build Failed!</b>%0A%0A<b>Run ID:</b> ${{ github.run_id }}%0A<b>Commit:</b> ${{ env.KERNEL_REV }}%0A<b>Status:</b> Failed! See attached error log."
           ./.telegram/tg.sh send_document "$LOG_FILE" "<b>📄 Build Error Log:</b> build_error_${{ github.run_id }}.log" || true
