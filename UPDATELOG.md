@@ -184,6 +184,23 @@
 
 
 
+### Bringup Run (`41328413437`) - Fastboot 0.5s Power-Off Diagnostics & Fix
+* **Triggered:** 2026-11-01 16:50 UTC
+* **Result:** ⚠️ Built cleanly, but device powered off ~0.5s after displaying the Mi splash logo when flashed via Fastboot.
+* **Root Cause Diagnostics:**
+  1. **Binary FDT / DTBO Symbol Audit:**
+     - `dtbo-6.12.img` bundled loose fragment overlays (`ravelin-sde-display-sky-overlay.dtbo` and `ravelin-audio-xiaomi-sky.dtbo`) using glob `*sky*.dtbo`.
+     - These fragments depended on base provider DTBOs (`ravelin-sde.dtbo` and `ravelin-audio.dtbo`), which were excluded from the image.
+     - As a result, `ravelin-sde-display-sky-overlay.dtbo` had 9 unresolved symbols (`mdss_mdp`, `mdss_dsi0`, `mdss_dsi_phy0`, `sde_rscc`, etc.), causing Qualcomm ABL's `libufdt` to fail resolution with `UFDT_ERROR`.
+     - When `libufdt` fails during boot, ABL immediately halts and cuts power rails.
+  2. **Vendor Boot DTB Stubbing:**
+     - `build_vendor_boot.sh` previously replaced the 1.39 MiB composite reference DTB with raw `*sky*base.dtb` (267 KiB stubs lacking `mdss_mdp` and audio controllers).
+* **Fix & Architecture Harmonization:**
+  1. Created `scripts/build_dtbo.sh`: Checks if compiled DTBOs form a self-contained composite set. If loose fragments lack their prerequisite base overlays, it preserves the verified 4-target reference `dtbo.img` (0 missing fixups against the base DTB).
+  2. Updated `scripts/build_vendor_boot.sh`: Validates whether compiled DTBs contain complete hardware controllers (`mdss_mdp`) before substituting; otherwise preserves the complete reference composite DTBs.
+  3. Bundled `vbmeta.img` with AVB verification disabled (Flags `0x3`) in `fastboot_bundle` with automatic flashing commands in `flash.sh` and `flash.bat`.
+  4. Removed incomplete `AnyKernel3/dtb` generation to prevent recovery flashers from replacing the GKI `vendor_boot.img` DTB table.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)

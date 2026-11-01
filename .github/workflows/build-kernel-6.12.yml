@@ -386,23 +386,13 @@ jobs:
           bash ../scripts/build_boot.sh kernel/out/arch/arm64/boot/Image artifacts/boot-6.12.img
 
           echo "2. Generating dtbo-6.12.img..."
-          SKY_DTBOS=$(find kernel/out/arch/arm64/boot/dts -name "*sky*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
-          for dtbo in ravelin-sky-overlay.dtbo ravelin-sky-4gb-overlay.dtbo; do
-            if ! find kernel/out/arch/arm64/boot/dts -name "$dtbo" -print -quit | grep -q .; then
-              echo "FATAL ERROR: required compiled overlay $dtbo is missing"
-              exit 1
-            fi
-          done
-          if [ -z "${SKY_DTBOS// }" ]; then
-            echo "FATAL ERROR: no sky DTBOs were compiled; refusing to substitute a reference DTBO image"
-            exit 1
-          fi
-          echo "Packing compiled DTBOs: $SKY_DTBOS"
-          python3 ../scripts/mkdtboimg.py create artifacts/dtbo-6.12.img --page_size=4096 $SKY_DTBOS
-          test -s artifacts/dtbo-6.12.img
+          bash ../scripts/build_dtbo.sh artifacts/dtbo-6.12.img kernel/out/arch/arm64/boot/dts
 
           echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
           bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
+
+          echo "4. Downloading LineageOS reference vbmeta.img..."
+          gh release download lineageos-24.0-reference -p "vbmeta.img" -O artifacts/vbmeta.img -R AltafYafai/kernel_xiaomi_sky_builder || true
 
           ls -lh artifacts/
 
@@ -422,9 +412,8 @@ jobs:
           [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img AnyKernel3/dtbo.img
           [ -f artifacts/vendor_boot-6.12.img ] && cp artifacts/vendor_boot-6.12.img AnyKernel3/vendor_boot.img
 
-          # Flatten base Sky device trees
-          find kernel/out/arch/arm64/boot/dts -name "*sky*base.dtb" -exec cat {} + > AnyKernel3/dtb || true
-          [ -s AnyKernel3/dtb ] || rm -f AnyKernel3/dtb
+          # On Header v4 GKI devices, DTB is exclusively housed in vendor_boot.img
+          rm -f AnyKernel3/dtb
 
           # Collect all compiled hardware modules (.ko)
           mkdir -p AnyKernel3/modules
@@ -454,11 +443,16 @@ jobs:
           cp artifacts/boot-6.12.img fastboot_bundle/boot.img
           cp artifacts/vendor_boot-6.12.img fastboot_bundle/vendor_boot.img
           [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img fastboot_bundle/dtbo.img
+          [ -f artifacts/vbmeta.img ] && cp artifacts/vbmeta.img fastboot_bundle/vbmeta.img
 
           cat << 'EOF' > fastboot_bundle/flash.sh
           #!/usr/bin/env bash
           set -e
           echo "=== Flashing Sky Linux 6.12 Kernel ==="
+          if [ -f vbmeta.img ]; then
+            echo "Flashing vbmeta (disabling AVB verification)..."
+            fastboot flash --disable-verity --disable-verification vbmeta vbmeta.img 2>/dev/null || fastboot flash vbmeta vbmeta.img
+          fi
           fastboot flash boot boot.img
           fastboot flash vendor_boot vendor_boot.img
           [ -f dtbo.img ] && fastboot flash dtbo dtbo.img
@@ -470,6 +464,10 @@ jobs:
           cat << 'EOF' > fastboot_bundle/flash.bat
           @echo off
           echo === Flashing Sky Linux 6.12 Kernel ===
+          if exist vbmeta.img (
+            echo Flashing vbmeta (disabling AVB verification)...
+            fastboot flash --disable-verity --disable-verification vbmeta vbmeta.img 2>nul || fastboot flash vbmeta vbmeta.img
+          )
           fastboot flash boot boot.img
           fastboot flash vendor_boot vendor_boot.img
           if exist dtbo.img fastboot flash dtbo dtbo.img
