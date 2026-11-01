@@ -226,7 +226,8 @@ jobs:
             include/soc/qcom/minidump.h \
             include/soc/qcom/secure_buffer.h \
             include/soc/qcom/of_common.h \
-            include/soc/qcom/rpmh.h; do
+            include/soc/qcom/rpmh.h \
+            include/soc/qcom/cmd-db.h; do
             echo "Importing Qualcomm compatibility header: $header"
             curl --fail --location --retry 3 --silent --show-error \
               "$HEADER_BASE/$header" -o "$header"
@@ -362,24 +363,66 @@ jobs:
                  "\t\tops->get_resv_regions(dev, list);")
           if old not in data:
               raise SystemExit("qcom IOMMU utility: expected legacy reserved-region helper not found")
+          if "#include <linux/iommu.h>" not in data:
+              data = data.replace("#include <linux/module.h>\n",
+                                  "#include <linux/module.h>\n#include <linux/iommu.h>\n", 1)
           data = data.replace(old, "\tiommu_get_resv_regions(dev, list);", 1)
           iommu_util.write_text(data)
 
-          rpmh = Path("drivers/soc/qcom/rpmh.c")
-          data = rpmh.read_text()
-          timeout_guard = "#ifndef CONFIG_QCOM_RPMH_TIMEOUT\n#define CONFIG_QCOM_RPMH_TIMEOUT 5000\n#endif\n\n"
-          if timeout_guard not in data:
-              marker = "#define RPMH_TIMEOUT_MS"
-              if marker not in data:
-                  raise SystemExit("RPMh: timeout macro not found")
-              data = data.replace(marker, timeout_guard + marker, 1)
-          rpmh.write_text(data)
+          # ACK 6.12 provides iommu_get_resv_regions(); do not use removed
+          # bus->iommu_ops or nonexistent dev_iommu_ops() accessors.
+
+          mem_buf_dev = Path("drivers/soc/qcom/mem_buf/mem-buf-dev.c")
+          data = mem_buf_dev.read_text()
+          old_remove = ("static int mem_buf_remove(struct platform_device *pdev)\n"
+                        "{\n\tmem_buf_dev = NULL;\n\treturn 0;\n}")
+          new_remove = ("static void mem_buf_remove(struct platform_device *pdev)\n"
+                        "{\n\tmem_buf_dev = NULL;\n}")
+          if data.count(old_remove) != 1:
+              raise SystemExit("mem-buf: expected legacy platform remove callback not found exactly once")
+          mem_buf_dev.write_text(data.replace(old_remove, new_remove, 1))
+
+          # Restore the real Qualcomm Command DB standalone-state API. ACK's
+          # implementation lacks this vendor extension, so implement it using
+          # the reserved flag in the actual Command DB header.
+          cmd_db = Path("drivers/soc/qcom/cmd-db.c")
+          data = cmd_db.read_text()
+          if "bool cmd_db_is_standalone(void)" not in data:
+              marker = "EXPORT_SYMBOL_GPL(cmd_db_ready);\n"
+              if data.count(marker) != 1:
+                  raise SystemExit("Command DB: cmd_db_ready export insertion point not found")
+              impl = ("\n#define CMD_DB_STANDALONE_MASK BIT(0)\n"
+                      "bool cmd_db_is_standalone(void)\n"
+                      "{\n"
+                      "\tint ret = cmd_db_ready();\n"
+                      "\tu32 standalone = le32_to_cpu(cmd_db_header->reserved) &\n"
+                      "\t\t\t CMD_DB_STANDALONE_MASK;\n"
+                      "\n"
+                      "\treturn !ret && standalone;\n"
+                      "}\n"
+                      "EXPORT_SYMBOL(cmd_db_is_standalone);\n")
+              data = data.replace(marker, marker + impl, 1)
+              cmd_db.write_text(data)
 
           rpmh_rsc = Path("drivers/soc/qcom/rpmh-rsc.c")
           data = rpmh_rsc.read_text()
-          data = data.replace("rpmh_standalone = cmd_db_is_standalone();",
-                              "rpmh_standalone = false;")
-          rpmh_rsc.write_text(data)
+          if "rpmh_standalone = cmd_db_is_standalone();" not in data:
+              raise SystemExit("RPMh RSC: real Command DB standalone-state call is missing")
+
+          # Make RPMh timeout a real Kconfig symbol rather than hiding its
+          # absence behind a C preprocessor fallback.
+          qcom_kconfig = Path("drivers/soc/qcom/Kconfig")
+          data = qcom_kconfig.read_text()
+          if "config QCOM_RPMH_TIMEOUT" not in data:
+              marker = "config QCOM_SMEM"
+              if data.count(marker) != 1:
+                  raise SystemExit("RPMh Kconfig insertion point not found")
+              option = ("config QCOM_RPMH_TIMEOUT\n"
+                        "\tint \"Timeout for RPMH and CRM communication\"\n"
+                        "\tdefault 5000\n"
+                        "\tdepends on QCOM_RPMH\n\n")
+              data = data.replace(marker, option + marker, 1)
+              qcom_kconfig.write_text(data)
           PY
 
           # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
