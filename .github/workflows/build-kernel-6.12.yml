@@ -315,24 +315,22 @@ jobs:
 
           pgtable = Path("drivers/iommu/qcom-io-pgtable-alloc.c")
           data = pgtable.read_text()
-          old_shrinker = '''static struct shrinker io_pgtable_alloc_shrinker = {
-	.count_objects = io_pgtable_alloc_count_objects,
-	.scan_objects = io_pgtable_alloc_scan_objects,
-	.seeks = DEFAULT_SEEKS,
-};'''
+          old_shrinker = ("static struct shrinker io_pgtable_alloc_shrinker = {\n"
+                          "\t.count_objects = io_pgtable_alloc_count_objects,\n"
+                          "\t.scan_objects = io_pgtable_alloc_scan_objects,\n"
+                          "\t.seeks = DEFAULT_SEEKS,\n};")
           if old_shrinker not in data:
               raise SystemExit("qcom io-pgtable: expected legacy static shrinker not found")
           data = data.replace(old_shrinker, "static struct shrinker *io_pgtable_alloc_shrinker;", 1)
           old_register = "return register_shrinker(&io_pgtable_alloc_shrinker, \"io_pgtable_alloc\");"
           if old_register in data:
-              data = data.replace(old_register, '''io_pgtable_alloc_shrinker = shrinker_alloc(0, "io_pgtable_alloc");
-	if (!io_pgtable_alloc_shrinker)
-		return -ENOMEM;
-	io_pgtable_alloc_shrinker->count_objects = io_pgtable_alloc_count_objects;
-	io_pgtable_alloc_shrinker->scan_objects = io_pgtable_alloc_scan_objects;
-	io_pgtable_alloc_shrinker->seeks = DEFAULT_SEEKS;
-	shrinker_register(io_pgtable_alloc_shrinker);
-	return 0;''', 1)
+              replacement = ("io_pgtable_alloc_shrinker = shrinker_alloc(0, \"io_pgtable_alloc\");\n"
+                             "\tif (!io_pgtable_alloc_shrinker)\n\t\treturn -ENOMEM;\n"
+                             "\tio_pgtable_alloc_shrinker->count_objects = io_pgtable_alloc_count_objects;\n"
+                             "\tio_pgtable_alloc_shrinker->scan_objects = io_pgtable_alloc_scan_objects;\n"
+                             "\tio_pgtable_alloc_shrinker->seeks = DEFAULT_SEEKS;\n"
+                             "\tshrinker_register(io_pgtable_alloc_shrinker);\n\treturn 0;")
+              data = data.replace(old_register, replacement, 1)
           data = data.replace("unregister_shrinker(&io_pgtable_alloc_shrinker);",
                               "shrinker_free(io_pgtable_alloc_shrinker);")
           if "register_shrinker(" in data or "unregister_shrinker(" in data:
@@ -354,7 +352,7 @@ jobs:
           iommu_util.write_text(data)
           PY
 
-           # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
+          # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
           # restricted hook imported above. Preserve the actual DMA range.
           # ACK android16-6.12 keeps the legacy one-argument setup API.
           # The Qualcomm restricted hook needs the DMA aperture; pass the
