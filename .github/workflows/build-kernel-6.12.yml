@@ -391,9 +391,6 @@ jobs:
           echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & OrangeFox in Fragment 1)..."
           bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
 
-          echo "4. Downloading LineageOS reference vbmeta.img..."
-          gh release download lineageos-24.0-reference -p "vbmeta.img" -O artifacts/vbmeta.img -R AltafYafai/kernel_xiaomi_sky_builder || true
-
           ls -lh artifacts/
 
       - name: Prepare AnyKernel3 Zip & Fastboot Bundle (95%)
@@ -409,11 +406,10 @@ jobs:
           git clone --depth=1 https://github.com/AltafYafai/AnyKernel3.git AnyKernel3
 
           cp kernel/out/arch/arm64/boot/Image AnyKernel3/
-          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img AnyKernel3/dtbo.img
           [ -f artifacts/vendor_boot-6.12.img ] && cp artifacts/vendor_boot-6.12.img AnyKernel3/vendor_boot.img
 
           # On Header v4 GKI devices, DTB is exclusively housed in vendor_boot.img
-          rm -f AnyKernel3/dtb
+          rm -f AnyKernel3/dtb AnyKernel3/dtbo.img
 
           # Collect all compiled hardware modules (.ko)
           mkdir -p AnyKernel3/modules
@@ -427,35 +423,25 @@ jobs:
           sed -i 's/block=.*/block=boot;/' anykernel.sh
           sed -i 's/is_slot_device=.*/is_slot_device=auto;/' anykernel.sh
 
-          # Inject flash_generic vendor_boot and flash_dtbo triggers
+          # Inject flash_generic vendor_boot trigger (dtbo is left untouched)
           if ! grep -q "flash_generic vendor_boot" anykernel.sh; then
             sed -i '/## end boot install/i [ -f vendor_boot.img ] \&\& flash_generic vendor_boot' anykernel.sh
-          fi
-          if ! grep -q "flash_dtbo" anykernel.sh; then
-            sed -i '/## end boot install/i [ -f dtbo.img ] \&\& flash_dtbo' anykernel.sh
           fi
 
           zip -r9 ../sky-kernel-6.12-${{ env.KERNEL_REV }}.zip * -x .git\* README.md
           cd ..
 
-          # Create Fastboot flashing package
+          # Create Fastboot flashing package (pure boot & vendor_boot, never touching vbmeta/dtbo)
           mkdir -p fastboot_bundle
           cp artifacts/boot-6.12.img fastboot_bundle/boot.img
           cp artifacts/vendor_boot-6.12.img fastboot_bundle/vendor_boot.img
-          [ -f artifacts/dtbo-6.12.img ] && cp artifacts/dtbo-6.12.img fastboot_bundle/dtbo.img
-          [ -f artifacts/vbmeta.img ] && cp artifacts/vbmeta.img fastboot_bundle/vbmeta.img
 
           cat << 'EOF' > fastboot_bundle/flash.sh
           #!/usr/bin/env bash
           set -e
           echo "=== Flashing Sky Linux 6.12 Kernel ==="
-          if [ -f vbmeta.img ]; then
-            echo "Flashing vbmeta (disabling AVB verification)..."
-            fastboot flash --disable-verity --disable-verification vbmeta vbmeta.img 2>/dev/null || fastboot flash vbmeta vbmeta.img
-          fi
           fastboot flash boot boot.img
           fastboot flash vendor_boot vendor_boot.img
-          [ -f dtbo.img ] && fastboot flash dtbo dtbo.img
           echo "=== Flashing Complete! Rebooting... ==="
           fastboot reboot
           EOF
@@ -464,13 +450,8 @@ jobs:
           cat << 'EOF' > fastboot_bundle/flash.bat
           @echo off
           echo === Flashing Sky Linux 6.12 Kernel ===
-          if exist vbmeta.img (
-            echo Flashing vbmeta (disabling AVB verification)...
-            fastboot flash --disable-verity --disable-verification vbmeta vbmeta.img 2>nul || fastboot flash vbmeta vbmeta.img
-          )
           fastboot flash boot boot.img
           fastboot flash vendor_boot vendor_boot.img
-          if exist dtbo.img fastboot flash dtbo dtbo.img
           echo === Flashing Complete! Rebooting... ===
           fastboot reboot
           EOF

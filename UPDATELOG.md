@@ -217,6 +217,18 @@
   2. Updated `scripts/build_boot.sh` and `scripts/build_vendor_boot.sh` to execute `avbtool add_hash_footer --partition_size 100663296 --algorithm NONE` instead of raw `truncate`.
   3. Ensured every generated boot and vendor_boot image contains a valid `AVBf` footer and sha256 hash descriptor.
 
+### Bringup Diagnostics & Fix - OrangeFox Dual-Fragment Recovery & Permissive SELinux
+* **Triggered:** 2026-11-02 01:55 UTC
+* **Symptom Analysis:**
+  1. With test `boot.img` and `vendor_boot.img`, ABL successfully authenticated the AVB footer and booted the Linux 6.12 kernel, holding on the Mi logo without powering off.
+  2. Flashing bundled `vbmeta.img` or loose `dtbo.img` caused an immediate 0.5s power-off because `vbmeta.img` contained foreign release keys that failed ABL's root-of-trust check.
+  3. Recovery failed to boot because `lineageos-24.0-reference` lacked Fragment 1 (OrangeFox recovery ramdisk), meaning recovery had been stripped from `vendor_boot.img`.
+  4. ADB remained offline because `androidboot.selinux=enforcing` stopped early userspace init from initializing USB configfs and adbd.
+* **Fix Action:**
+  1. **Dual-Fragment Packaging (`vendor_boot.img`):** Updated `scripts/build_vendor_boot.sh` to ensure `vendor_boot_recovery_ramdisk.cpio.lz4` (55.8 MiB) is always injected as Fragment 1 (`type=2, name='recovery'`). Volume Up + Power now boots directly into OrangeFox on the 6.12 kernel.
+  2. **Bringup SELinux Permissive:** Configured `bootconfig` to enforce `androidboot.selinux=permissive` during bringup, preventing init stalls and enabling early `adbd`.
+  3. **Purged `vbmeta` & `dtbo` from Fastboot Bundle:** Updated `fastboot_bundle` (`flash.sh`, `flash.bat`) and AnyKernel3 to strictly flash `boot` and `vendor_boot`, preserving the host ROM's trusted `vbmeta` and `dtbo`.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)

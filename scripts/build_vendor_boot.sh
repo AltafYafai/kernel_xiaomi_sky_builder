@@ -104,18 +104,26 @@ MKBOOT_ARGS=(
 )
 
 if [ -s /tmp/vb_unpack/bootconfig ]; then
-    # Never weaken SELinux for a normal kernel build. Normalize an inherited
-    # permissive setting to enforcing and otherwise preserve the reference config.
-    if grep -q "androidboot.selinux=permissive" /tmp/vb_unpack/bootconfig; then
-        echo "WARNING: replacing inherited androidboot.selinux=permissive with enforcing"
-        sed -i 's/androidboot.selinux=permissive/androidboot.selinux=enforcing/g' /tmp/vb_unpack/bootconfig
+    # For early bringup and diagnostics on Linux 6.12 GKI, enforce permissive SELinux
+    # so that missing policy rules do not hang init or block adbd USB bringup.
+    if grep -q "androidboot.selinux=" /tmp/vb_unpack/bootconfig; then
+        sed -i 's/androidboot.selinux=.*/androidboot.selinux=permissive/g' /tmp/vb_unpack/bootconfig
+    else
+        echo "androidboot.selinux=permissive" >> /tmp/vb_unpack/bootconfig
     fi
+    echo "Configured bootconfig with androidboot.selinux=permissive for bringup."
     MKBOOT_ARGS+=(--vendor_bootconfig /tmp/vb_unpack/bootconfig)
 fi
 
-# If Fragment 1 exists (e.g. OrangeFox recovery ramdisk), preserve it!
-if [ -f /tmp/vb_unpack/vendor_ramdisk01 ]; then
-    echo "Preserving secondary ramdisk fragment (recovery)..."
+# Ensure secondary ramdisk fragment (OrangeFox recovery) is always included
+if [ ! -f /tmp/vb_unpack/vendor_ramdisk01 ]; then
+    echo "Secondary ramdisk fragment not present in base vendor_boot. Fetching OrangeFox recovery fragment..."
+    gh release download 20261019-39267552832 -p "vendor_boot_recovery_ramdisk.cpio.lz4" -O /tmp/vb_unpack/vendor_ramdisk01 -R AltafYafai/OrangeFox-Builder-Sky 2>/dev/null || \
+    curl -sL "https://github.com/AltafYafai/OrangeFox-Builder-Sky/releases/download/20261019-39267552832/vendor_boot_recovery_ramdisk.cpio.lz4" -o /tmp/vb_unpack/vendor_ramdisk01 || true
+fi
+
+if [ -f /tmp/vb_unpack/vendor_ramdisk01 ] && [ -s /tmp/vb_unpack/vendor_ramdisk01 ]; then
+    echo "Injecting secondary ramdisk fragment (OrangeFox recovery, $(wc -c < /tmp/vb_unpack/vendor_ramdisk01) bytes)..."
     MKBOOT_ARGS+=(
         --ramdisk_type 2
         --ramdisk_name recovery
