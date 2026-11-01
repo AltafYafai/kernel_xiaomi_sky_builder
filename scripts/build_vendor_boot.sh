@@ -55,15 +55,15 @@ if [ -n "$DTB_DIR" ] && [ -d "$DTB_DIR" ]; then
         SKY_DTBS=$(find "$DTB_DIR" -name "*sky*.dtb" ! -name "*.dtbo" 2>/dev/null | sort -r | tr '\n' ' ')
     fi
     if [ -n "${SKY_DTBS// }" ]; then
-        # Check if compiled DTBs contain essential hardware subsystem nodes (e.g. mdss_mdp).
-        # Partial base stubs lacking mdss_mdp cause ABL to abort with UFDT_ERROR during overlay resolution.
-        if grep -qa "mdss_mdp" $SKY_DTBS 2>/dev/null; then
-            echo "Compiled DTBs contain full subsystem controllers (mdss_mdp). Using compiled DTB."
+        # Check if compiled DTBs contain essential hardware subsystem nodes (sde_rscc and lpi_tlmm).
+        # Partial base stubs lacking these nodes cause ABL to abort with UFDT_ERROR during overlay resolution.
+        if grep -qa "sde_rscc" $SKY_DTBS 2>/dev/null && grep -qa "lpi_tlmm" $SKY_DTBS 2>/dev/null; then
+            echo "Compiled DTBs contain full subsystem controllers (sde_rscc, lpi_tlmm). Using compiled DTB."
             cat $SKY_DTBS > /tmp/vb_unpack/dtb
             echo "Compiled DTB size: $(wc -c < /tmp/vb_unpack/dtb) bytes"
             KEEP_BASE_DTB=0
         else
-            echo "Notice: Compiled DTBs ($SKY_DTBS) are partial base stubs lacking display controller (mdss_mdp)."
+            echo "Notice: Compiled DTBs ($SKY_DTBS) are partial base stubs lacking hardware nodes (sde_rscc, lpi_tlmm)."
             echo "Preserving verified complete reference DTBs ($(wc -c < /tmp/vb_unpack/dtb) bytes) to ensure clean ABL boot."
         fi
     fi
