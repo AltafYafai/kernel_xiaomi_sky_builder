@@ -233,6 +233,56 @@ jobs:
             test -s "$header"
           done
 
+          # Port the Qualcomm secure-display SCM command used by SDE.
+          # ACK 6.12 has the SCM transport, but not this SM4450 vendor command.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          scm_c = Path("drivers/firmware/qcom_scm.c")
+          scm_h = Path("include/linux/firmware/qcom/qcom_scm.h")
+          src = scm_c.read_text()
+          api = scm_h.read_text()
+          marker = "int qcom_scm_mem_protect_video_var("
+          if "qcom_scm_mem_protect_sd_ctrl(" not in api:
+              if marker not in api:
+                  raise SystemExit("ACK SCM public header insertion point not found")
+              api = api.replace(marker,
+                  "int qcom_scm_mem_protect_sd_ctrl(u32 devid, phys_addr_t mem_addr, u64 mem_size, u32 vmid);\\n" + marker, 1)
+              scm_h.write_text(api)
+          if "qcom_scm_mem_protect_sd_ctrl(" not in src:
+              if marker not in src:
+                  raise SystemExit("ACK SCM implementation insertion point not found")
+              impl = '''#ifndef QCOM_SCM_MP_CMD_SD_CTRL
+          #define QCOM_SCM_MP_CMD_SD_CTRL 0x18
+          #endif
+          int qcom_scm_mem_protect_sd_ctrl(u32 devid, phys_addr_t mem_addr,
+          \\t\\t\\t\\t u64 mem_size, u32 vmid)
+          {
+          \\tstruct qcom_scm_desc desc = {
+          \\t\\t.svc = QCOM_SCM_SVC_MP,
+          \\t\\t.cmd = QCOM_SCM_MP_CMD_SD_CTRL,
+          \\t\\t.owner = ARM_SMCCC_OWNER_SIP,
+          \\t\\t.args[0] = devid,
+          \\t\\t.args[1] = mem_addr,
+          \\t\\t.args[2] = mem_size,
+          \\t\\t.args[3] = vmid,
+          \\t\\t.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_RW,
+          \\t\\t\\t\\t\\t QCOM_SCM_VAL, QCOM_SCM_VAL),
+          \\t};
+          \\tstruct qcom_scm_res res;
+          \\tint ret;
+
+          \\tret = qcom_scm_call(__scm->dev, &desc, &res);
+          \\treturn ret ? : res.result[0];
+          }
+          EXPORT_SYMBOL(qcom_scm_mem_protect_sd_ctrl);
+
+          '''
+              src = src.replace(marker, impl + marker, 1)
+              scm_c.write_text(src)
+          print("Applied SM4450 secure-display SCM API port")
+          PY
+
           # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees.
           # ACK 6.12 does not guarantee that the destination directory exists.
           if [ -d "../sm4450-devicetrees/include/dt-bindings" ]; then
