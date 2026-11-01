@@ -293,6 +293,25 @@ jobs:
           include/trace/hooks/iommu.h
           VENDOR_FILES
 
+          # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
+          # restricted hook imported above. Preserve the actual DMA range.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("drivers/iommu/dma-iommu.c")
+          source = path.read_text()
+          old = "trace_android_rvh_iommu_setup_dma_ops(dev);"
+          new = "trace_android_rvh_iommu_setup_dma_ops(dev, dma_base, dma_limit);"
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(
+                  f"IOMMU hook compatibility patch: expected one old call, found {count}"
+              )
+          if "void iommu_setup_dma_ops(struct device *dev, u64 dma_base, u64 dma_limit)" not in source:
+              raise SystemExit("IOMMU setup function signature differs from expected ACK 6.12 API")
+          path.write_text(source.replace(old, new, 1))
+          print("Fixed android_rvh_iommu_setup_dma_ops(dev, dma_base, dma_limit)")
+
           # Register the vendor memory-buffer and IOMMU providers in ACK's build graph.
           python3 - <<'PY'
           from pathlib import Path
