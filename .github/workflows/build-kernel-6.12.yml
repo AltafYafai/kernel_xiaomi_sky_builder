@@ -144,7 +144,7 @@ jobs:
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
           echo "Cloning android_kernel_xiaomi_sm4450-6.12..."
-          if ! git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
+          if ! git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH || 'lineage-24.0-6.12' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel; then
             echo "Kernel 6.12 repo empty or branch not found. Fetching ACK android16-6.12 directly..."
             git clone --depth=1 -b android16-6.12 https://android.googlesource.com/kernel/common kernel
@@ -191,6 +191,23 @@ jobs:
           export CCACHE_COMPRESSLEVEL=5
           export CCACHE_SLOPPY=time_macros,include_file_mtime,file_macro
           ccache -z
+
+          # The work/6.12-platform-port ref in the kernel repository is a
+          # header-only commit tree, not a complete kernel checkout. Build from
+          # the full ACK 6.12 branch and import the matching Qualcomm headers.
+          mkdir -p include/linux/soc/qcom include/soc/qcom
+          HEADER_BASE="https://raw.githubusercontent.com/xiaomi-ravelin/android_kernel_xiaomi_sm4450/lineage-24.0"
+          for header in \
+            include/linux/qcom-iommu-util.h \
+            include/soc/qcom/minidump.h \
+            include/soc/qcom/secure_buffer.h \
+            include/soc/qcom/of_common.h \
+            include/linux/soc/qcom/spmi-pmic-arb.h; do
+            echo "Importing Qualcomm compatibility header: $header"
+            curl --fail --location --retry 3 --silent --show-error \
+              "$HEADER_BASE/$header" -o "$header"
+            test -s "$header"
+          done
 
           # Copy Qualcomm vendor DT-bindings from sm4450-devicetrees.
           # ACK 6.12 does not guarantee that the destination directory exists.
