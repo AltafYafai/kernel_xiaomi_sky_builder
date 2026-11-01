@@ -615,11 +615,27 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             modules 2>&1 | tee -a make.log
 
+          echo "Verifying Xiaomi exported-symbol manifest..."
+          XIAOMI_SYMVERS="$(realpath ../sm4450-modules/xiaomi/Module.symvers)"
+          if [ ! -s "$XIAOMI_SYMVERS" ]; then
+            echo "FATAL ERROR: Xiaomi Module.symvers was not generated at $XIAOMI_SYMVERS"
+            find ../sm4450-modules/xiaomi -name Module.symvers -type f -print
+            exit 1
+          fi
+          for symbol in xiaomi_touch_notifier_register_client xiaomi_touch_notifier_unregister_client ktd3136_bl_set_brightness ktd3136_reg_init ocp2131_enable; do
+            if ! grep -qE "[[:space:]]${symbol}[[:space:]]" "$XIAOMI_SYMVERS"; then
+              echo "FATAL ERROR: Xiaomi Module.symvers does not export $symbol"
+              exit 1
+            fi
+          done
+          echo "Using Xiaomi exported symbols from: $XIAOMI_SYMVERS"
+
           echo "Compiling Qualcomm Display Drivers (msm_drm)..."
           make -k -j$(nproc --all) -C $PWD O=out \
             M=$(realpath ../sm4450-modules/qcom/opensource/display-drivers/msm) \
             DISPLAY_ROOT=$(realpath ../sm4450-modules/qcom/opensource/display-drivers) \
             EXTRA_CFLAGS="-I$(realpath ../sm4450-modules/qcom/opensource/display-drivers/include) -I$(realpath ../sm4450-modules/xiaomi/include) -Wno-error" \
+            KBUILD_EXTRA_SYMBOLS="$XIAOMI_SYMVERS" \
             CONFIG_ARCH_RAVELIN=y \
             KERNEL_SRC=$PWD \
             KERNEL_ROOT=$PWD \
