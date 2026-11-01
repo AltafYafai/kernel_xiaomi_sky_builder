@@ -169,6 +169,10 @@ jobs:
           test -f arch/arm64/configs/gki_defconfig
           test -f arch/arm64/configs/vendor/sky_GKI.config
 
+          # Keep the kernel, device-tree and module checkouts as siblings.
+          # The build step expects workspace/{kernel,sm4450-devicetrees,sm4450-modules}.
+          cd ..
+
           echo "Cloning android_kernel_xiaomi_sm4450-devicetrees-6.12..."
           git clone --depth=1 -b ${{ github.event.inputs.DEVICETREES_BRANCH || 'work/6.12-platform-port' }} \
             https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-devicetrees-6.12.git sm4450-devicetrees
