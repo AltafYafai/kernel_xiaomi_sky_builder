@@ -403,14 +403,16 @@ jobs:
           qcom_kconfig = Path("drivers/soc/qcom/Kconfig")
           data = qcom_kconfig.read_text()
           if "config QCOM_RPMH_TIMEOUT" not in data:
-              marker = "config QCOM_SMEM"
-              if data.count(marker) != 1:
-                  raise SystemExit("RPMh Kconfig insertion point not found")
-              option = ("config QCOM_RPMH_TIMEOUT\n"
-                        "\tint \"Timeout for RPMH and CRM communication\"\n"
-                        "\tdefault 5000\n"
-                        "\tdepends on QCOM_RPMH\n\n")
-              data = data.replace(marker, option + marker, 1)
+              import re
+              marker = r"(?m)^config QCOM_SMEM$"
+              data, insert_count = re.subn(
+                  marker,
+                  "config QCOM_RPMH_TIMEOUT\\n\\tint \"Timeout for RPMH and CRM communication\"\\n\\tdefault 5000\\n\\tdepends on QCOM_RPMH\\n\\nconfig QCOM_SMEM",
+                  data,
+                  count=1,
+              )
+              if insert_count != 1:
+                  raise SystemExit("RPMh Kconfig: anchored QCOM_SMEM insertion point not found exactly once")
               qcom_kconfig.write_text(data)
           PY
 
