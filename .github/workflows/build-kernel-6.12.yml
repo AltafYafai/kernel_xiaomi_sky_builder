@@ -311,7 +311,18 @@ jobs:
               if old_return not in data:
                   raise SystemExit("mem-buf: expected legacy remove callback body not found")
               data = data.replace(old_return, "\tmem_buf_msgq_free(&pdev->dev);\n}", 1)
-              mem_buf.write_text(data)
+          mem_buf.write_text(data)
+
+          mem_buf_dev = Path("drivers/soc/qcom/mem_buf/mem-buf-dev.c")
+          data = mem_buf_dev.read_text()
+          old = "static int mem_buf_remove(struct platform_device *pdev)"
+          if old in data:
+              data = data.replace(old, "static void mem_buf_remove(struct platform_device *pdev)", 1)
+              old_return = "\tmem_buf_dev = NULL;\n\treturn 0;\n}"
+              if old_return not in data:
+                  raise SystemExit("mem-buf-dev: expected legacy remove callback body not found")
+              data = data.replace(old_return, "\tmem_buf_dev = NULL;\n}", 1)
+          mem_buf_dev.write_text(data)
 
           pgtable = Path("drivers/iommu/qcom-io-pgtable-alloc.c")
           data = pgtable.read_text()
@@ -346,10 +357,29 @@ jobs:
 
           iommu_util = Path("drivers/iommu/qcom-iommu-util.c")
           data = iommu_util.read_text()
-          data = data.replace("dev->bus->iommu_ops", "dev_iommu_ops(dev)")
-          if "->iommu_ops" in data:
-              raise SystemExit("qcom IOMMU utility retains removed bus iommu_ops access")
+          old = ("\tconst struct iommu_ops *ops = dev->bus->iommu_ops;\n\n"
+                 "\tif (ops && ops->get_resv_regions)\n"
+                 "\t\tops->get_resv_regions(dev, list);")
+          if old not in data:
+              raise SystemExit("qcom IOMMU utility: expected legacy reserved-region helper not found")
+          data = data.replace(old, "\tiommu_get_resv_regions(dev, list);", 1)
           iommu_util.write_text(data)
+
+          rpmh = Path("drivers/soc/qcom/rpmh.c")
+          data = rpmh.read_text()
+          timeout_guard = "#ifndef CONFIG_QCOM_RPMH_TIMEOUT\n#define CONFIG_QCOM_RPMH_TIMEOUT 5000\n#endif\n\n"
+          if timeout_guard not in data:
+              marker = "#define RPMH_TIMEOUT_MS"
+              if marker not in data:
+                  raise SystemExit("RPMh: timeout macro not found")
+              data = data.replace(marker, timeout_guard + marker, 1)
+          rpmh.write_text(data)
+
+          rpmh_rsc = Path("drivers/soc/qcom/rpmh-rsc.c")
+          data = rpmh_rsc.read_text()
+          data = data.replace("rpmh_standalone = cmd_db_is_standalone();",
+                              "rpmh_standalone = false;")
+          rpmh_rsc.write_text(data)
           PY
 
           # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
