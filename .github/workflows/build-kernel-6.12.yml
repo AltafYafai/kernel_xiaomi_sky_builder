@@ -209,14 +209,21 @@ jobs:
           # The work/6.12-platform-port ref in the kernel repository is a
           # header-only commit tree, not a complete kernel checkout. Build from
           # the full ACK 6.12 branch and import the matching Qualcomm headers.
-          mkdir -p include/linux/soc/qcom include/soc/qcom
+          mkdir -p include/linux/soc/qcom include/linux/pinctrl include/soc/qcom
           HEADER_BASE="https://raw.githubusercontent.com/xiaomi-ravelin/android_kernel_xiaomi_sm4450/lineage-24.0"
           for header in \
             include/linux/qcom-iommu-util.h \
+            include/linux/qcom-dma-mapping.h \
+            include/linux/qtee_shmbridge.h \
+            include/linux/pinctrl/qcom-pinctrl.h \
+            include/linux/qti-smmu-proxy-callbacks.h \
+            include/linux/msm_dma_iommu_mapping.h \
+            include/linux/soc/qcom/llcc-qcom.h \
+            include/linux/soc/qcom/spmi-pmic-arb.h \
             include/soc/qcom/minidump.h \
             include/soc/qcom/secure_buffer.h \
             include/soc/qcom/of_common.h \
-            include/linux/soc/qcom/spmi-pmic-arb.h; do
+            include/soc/qcom/rpmh.h; do
             echo "Importing Qualcomm compatibility header: $header"
             curl --fail --location --retry 3 --silent --show-error \
               "$HEADER_BASE/$header" -o "$header"
