@@ -465,15 +465,10 @@ jobs:
               "module_platform_driver(qtee_shmbridge_driver);",
               "register QTEE as a dependent module")
 
-          # This vendor source is converted into a loadable module. The original
-          # file has no module license declaration, so add metadata required by
-          # Linux 6.12 MODPOST after registering the platform driver.
-          replace_once(
-              "module_platform_driver(qtee_shmbridge_driver);",
-              "module_platform_driver(qtee_shmbridge_driver);\n\n"
-              "MODULE_DESCRIPTION(\\"Qualcomm TEE shared memory bridge\\");\n"
-              "MODULE_LICENSE(\\"GPL v2\\");",
-              "add QTEE module metadata")
+          # This vendor source is converted into a loadable module. Add the
+          # module metadata required by Linux 6.12 MODPOST at file scope.
+          src += '\\nMODULE_DESCRIPTION("Qualcomm TEE shared memory bridge");\\n'
+          src += 'MODULE_LICENSE("GPL v2");\\n'
 
           src_path.write_text(src)
 
