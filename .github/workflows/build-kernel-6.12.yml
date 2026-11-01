@@ -256,24 +256,24 @@ jobs:
           #define QCOM_SCM_MP_CMD_SD_CTRL 0x18
           #endif
           int qcom_scm_mem_protect_sd_ctrl(u32 devid, phys_addr_t mem_addr,
-          \\t\\t\\t\\t u64 mem_size, u32 vmid)
+                           u64 mem_size, u32 vmid)
           {
-          \\tstruct qcom_scm_desc desc = {
-          \\t\\t.svc = QCOM_SCM_SVC_MP,
-          \\t\\t.cmd = QCOM_SCM_MP_CMD_SD_CTRL,
-          \\t\\t.owner = ARM_SMCCC_OWNER_SIP,
-          \\t\\t.args[0] = devid,
-          \\t\\t.args[1] = mem_addr,
-          \\t\\t.args[2] = mem_size,
-          \\t\\t.args[3] = vmid,
-          \\t\\t.arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_RW,
-          \\t\\t\\t\\t\\t QCOM_SCM_VAL, QCOM_SCM_VAL),
-          \\t};
-          \\tstruct qcom_scm_res res;
-          \\tint ret;
+              struct qcom_scm_desc desc = {
+                  .svc = QCOM_SCM_SVC_MP,
+                  .cmd = QCOM_SCM_MP_CMD_SD_CTRL,
+                  .owner = ARM_SMCCC_OWNER_SIP,
+                  .args[0] = devid,
+                  .args[1] = mem_addr,
+                  .args[2] = mem_size,
+                  .args[3] = vmid,
+                  .arginfo = QCOM_SCM_ARGS(4, QCOM_SCM_VAL, QCOM_SCM_RW,
+                               QCOM_SCM_VAL, QCOM_SCM_VAL),
+              };
+              struct qcom_scm_res res;
+              int ret;
 
-          \\tret = qcom_scm_call(__scm->dev, &desc, &res);
-          \\treturn ret ? : res.result[0];
+              ret = qcom_scm_call(__scm->dev, &desc, &res);
+              return ret ? : res.result[0];
           }
           EXPORT_SYMBOL(qcom_scm_mem_protect_sd_ctrl);
 
