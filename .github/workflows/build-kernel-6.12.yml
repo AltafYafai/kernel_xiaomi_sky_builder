@@ -213,11 +213,9 @@ jobs:
           HEADER_BASE="https://raw.githubusercontent.com/xiaomi-ravelin/android_kernel_xiaomi_sm4450/lineage-24.0"
           for header in \
             include/linux/qcom-iommu-util.h \
-            include/linux/gunyah.h \
             include/linux/gunyah/gh_irq_lend.h \
             include/linux/gunyah/gh_common.h \
             include/linux/gunyah/gh_rm_drv.h \
-            include/uapi/linux/gunyah.h \
             include/linux/qcom-dma-mapping.h \
             include/linux/qtee_shmbridge.h \
             include/linux/pinctrl/qcom-pinctrl.h \
