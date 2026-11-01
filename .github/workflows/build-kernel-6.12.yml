@@ -276,6 +276,8 @@ jobs:
           drivers/iommu/qcom-io-pgtable-alloc.h
           drivers/iommu/io-pgtable-fast.c
           drivers/iommu/dma-mapping-fast.c
+          drivers/dma-buf/heaps/deferred-free-helper.h
+          drivers/dma-buf/heaps/qcom_dma_heap_priv.h
           drivers/dma-buf/heaps/qcom_sg_ops.h
           include/linux/pinctrl/qcom-pinctrl.h
           include/linux/soc/qcom/spmi-pmic-arb.h
@@ -313,14 +315,43 @@ jobs:
 
           pgtable = Path("drivers/iommu/qcom-io-pgtable-alloc.c")
           data = pgtable.read_text()
+          old_shrinker = '''static struct shrinker io_pgtable_alloc_shrinker = {
+	.count_objects = io_pgtable_alloc_count_objects,
+	.scan_objects = io_pgtable_alloc_scan_objects,
+	.seeks = DEFAULT_SEEKS,
+};'''
+          if old_shrinker not in data:
+              raise SystemExit("qcom io-pgtable: expected legacy static shrinker not found")
+          data = data.replace(old_shrinker, "static struct shrinker *io_pgtable_alloc_shrinker;", 1)
           old_register = "return register_shrinker(&io_pgtable_alloc_shrinker, \"io_pgtable_alloc\");"
           if old_register in data:
-              data = data.replace(old_register, "shrinker_register(&io_pgtable_alloc_shrinker);\n\treturn 0;", 1)
+              data = data.replace(old_register, '''io_pgtable_alloc_shrinker = shrinker_alloc(0, "io_pgtable_alloc");
+	if (!io_pgtable_alloc_shrinker)
+		return -ENOMEM;
+	io_pgtable_alloc_shrinker->count_objects = io_pgtable_alloc_count_objects;
+	io_pgtable_alloc_shrinker->scan_objects = io_pgtable_alloc_scan_objects;
+	io_pgtable_alloc_shrinker->seeks = DEFAULT_SEEKS;
+	shrinker_register(io_pgtable_alloc_shrinker);
+	return 0;''', 1)
           data = data.replace("unregister_shrinker(&io_pgtable_alloc_shrinker);",
-                              "shrinker_unregister(&io_pgtable_alloc_shrinker);")
+                              "shrinker_free(io_pgtable_alloc_shrinker);")
           if "register_shrinker(" in data or "unregister_shrinker(" in data:
               raise SystemExit("qcom io-pgtable: legacy shrinker API remains")
           pgtable.write_text(data)
+
+          trace_rpmh = Path("drivers/soc/qcom/trace-rpmh.h")
+          data = trace_rpmh.read_text()
+          data = data.replace("__assign_str(name, d->name)", "__assign_str(name)")
+          if "__assign_str(name," in data:
+              raise SystemExit("RPMh trace events retain the pre-6.12 __assign_str API")
+          trace_rpmh.write_text(data)
+
+          iommu_util = Path("drivers/iommu/qcom-iommu-util.c")
+          data = iommu_util.read_text()
+          data = data.replace("dev->bus->iommu_ops", "dev_iommu_ops(dev)")
+          if "->iommu_ops" in data:
+              raise SystemExit("qcom IOMMU utility retains removed bus iommu_ops access")
+          iommu_util.write_text(data)
           PY
 
            # Match ACK 6.12's IOMMU call site to the three-argument Qualcomm
@@ -377,7 +408,8 @@ jobs:
               raise SystemExit("Vendor RPMh API header was not imported")
           config = Path("arch/arm64/configs/vendor/sky_GKI.config")
           cfg = config.read_text()
-          for option in ("CONFIG_QCOM_IOMMU_UTIL=m", "CONFIG_QCOM_MEM_BUF=m"):
+          for option in ("CONFIG_QCOM_IOMMU_UTIL=m", "CONFIG_QCOM_MEM_BUF=m",
+                         "CONFIG_QCOM_RPMH_TIMEOUT=5000"):
               if option.split("=")[0] + "=" not in cfg:
                   cfg = cfg.rstrip() + "\n" + option + "\n"
           config.write_text(cfg)
