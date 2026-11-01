@@ -246,6 +246,15 @@ jobs:
           # Use the in-tree Kbuild for the Qualcomm Bluetooth DTS overlays.
           rm -f arch/arm64/boot/dts/qcom/bt/Makefile
 
+          # ACK's in-tree DTBO rule consumes .dtso sources, while this Qualcomm
+          # vendor tree stores Bluetooth overlays as .dts. Provide build-local
+          # .dtso aliases so every selected bt/Kbuild dtbo-y target has a source.
+          for dts in arch/arm64/boot/dts/qcom/bt/*.dts; do
+            [ -f "$dts" ] || continue
+            dtso="${dts%.dts}.dtso"
+            [ -e "$dtso" ] || cp "$dts" "$dtso"
+          done
+
           # Do not recurse into audio/: its Kbuild is an external-DT wrapper and
           # the recursive sub-make does not inherit scripts/Makefile.dtbs rules.
           # Build the Sky audio overlay from the qcom parent Kbuild instead.
