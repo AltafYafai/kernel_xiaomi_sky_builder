@@ -355,13 +355,25 @@ jobs:
           find out ../sm4450-modules -name "*.ko" | head -n 30 || true
 
           echo "=== REQUIRED SKY PLATFORM DRIVERS ==="
-          for drv in pinctrl-parrot pinctrl-ravelin qnoc-parrot qnoc-ravelin gcc-parrot dispcc-parrot camcc-parrot gpucc-parrot videocc-parrot; do
+          declare -A DRIVER_CONFIGS=(
+            ["pinctrl-parrot"]="CONFIG_PINCTRL_PARROT"
+            ["pinctrl-ravelin"]="CONFIG_PINCTRL_RAVELIN"
+            ["qnoc-parrot"]="CONFIG_INTERCONNECT_QCOM_PARROT"
+            ["qnoc-ravelin"]="CONFIG_INTERCONNECT_QCOM_RAVELIN"
+            ["gcc-parrot"]="CONFIG_SM_GCC_PARROT"
+            ["dispcc-parrot"]="CONFIG_SM_DISPCC_PARROT"
+            ["camcc-parrot"]="CONFIG_SM_CAMCC_PARROT"
+            ["gpucc-parrot"]="CONFIG_SM_GPUCC_PARROT"
+            ["videocc-parrot"]="CONFIG_SM_VIDEOCC_PARROT"
+          )
+          for drv in "${!DRIVER_CONFIGS[@]}"; do
+            cfg="${DRIVER_CONFIGS[$drv]}"
             if find out -name "${drv}.ko" -print -quit | grep -q .; then
               echo "✓ Driver $drv built as module (${drv}.ko)"
-            elif grep -Eq "CONFIG_.*$(echo $drv | tr 'a-z-' 'A-Z_')=y" out/.config; then
-              echo "✓ Driver $drv built directly into kernel image"
+            elif grep -Eq "^${cfg}=[ym]" out/.config; then
+              echo "✓ Driver $drv built into kernel (${cfg})"
             else
-              echo "FATAL ERROR: required platform driver $drv was not built"
+              echo "FATAL ERROR: required platform driver $drv was not built ($cfg)"
               exit 1
             fi
           done
