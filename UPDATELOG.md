@@ -270,6 +270,30 @@
   2. **DWC3 USB Bringup:** Fixed QSCRATCH remapping at offset `0xf8800` via non-blocking `devm_ioremap`, added `"ddr-usb"` fallback for interconnect, relaxed extcon requirement, added `"ref_clk"` fallback for clock init, and added `"vdd"` fallback for regulator bulk get.
   3. **UFS Storage Bringup:** Added `qcom,ufs-phy-qmp-v4-waipio` and `qcom,ufs-phy-qmp-v4-niobe` to `qmp_ufs_of_match_table` in `phy-qcom-qmp-ufs.c`, and enabled `CONFIG_PHY_QCOM_QMP_UFS=y`, `CONFIG_SCSI_UFS_QCOM=y`, `CONFIG_SCSI_UFS_CRYPTO_QTI=y`, and `CONFIG_SERIAL_MSM_GENI_CONSOLE=y` built directly into `sky_GKI.config`.
 
+### Bringup Diagnostics: UFS Self-Provided Clock Loop, QCOM ICE, and DWC3 USB PHY Binding
+* **Triggered:** 2026-11-02 17:40 UTC
+* **Symptoms:** Device held on Mi splash logo indefinitely without rebooting; no ADB device recognized over USB; Recovery mode also stalled at Mi splash logo.
+* **Root Cause Diagnostics:**
+  1. **UFS Host Probe Deferred Indefinitely:**
+     - In `phy-qcom-qmp-ufs.c`, `qmp_ufs_clk_init` called `devm_clk_bulk_get_all()`.
+     - Downstream devicetree lists 3 self-provided symbol clocks (`rx_sym0_phy_clk`, etc.) in the PHY node's `clocks` property.
+     - Calling `devm_clk_bulk_get_all()` before the clock provider was registered triggered `-EPROBE_DEFER`, causing UFS PHY and UFS host controller (`ufshc_mem`) to defer probe indefinitely.
+     - Without storage, `/dev/block/bootdevice/by-name/` never appeared; Android userspace `init` (and recovery `init`) stalled indefinitely in the early partition wait loop while the screen remained frozen on the bootloader's splash image.
+  2. **USB DWC3 Controller Deferred Probe (No ADB):**
+     - Downstream DT specifies `usb-phy = <&usb2_phy0>, <&usb_qmp_dp_phy>`.
+     - In Linux 6.12, `dwc3_core_get_phy` queries `devm_usb_get_phy_by_phandle` for legacy `struct usb_phy`.
+     - Because `phy-qcom-snps-femto-v2.c` only registered a generic `struct phy`, and `usb_qmp_dp_phy` was unpopulated, both lookups returned `-EPROBE_DEFER`.
+     - `dwc3` probe aborted with `-EPROBE_DEFER`, leaving the hardware USB peripheral controller uninitialized and `adbd` offline.
+  3. **Recovery Stall Mechanism:**
+     - On SM4450 (`BOARD_EXCLUDE_KERNEL_FROM_RECOVERY_IMAGE := true`), Recovery mode executes the `boot.img` kernel. When the kernel stalls without storage, Recovery mode also stalls at the Mi splash logo.
+* **Fix Action:**
+  1. **UFS Clock Loop Fix:** Updated `qmp_ufs_clk_init` in `phy-qcom-qmp-ufs.c` to parse `clock-names` and exclude self-provided `_phy_clk` symbol clocks, allowing external GCC/RPMh clocks to be acquired cleanly and bringing UFS host online.
+  2. **QCOM ICE Inline Crypto Engine:** Enabled `CONFIG_QCOM_INLINE_CRYPTO_ENGINE=y` and modernized `CONFIG_SERIAL_QCOM_GENI=y` in `sky_GKI.config`.
+  3. **DWC3 USB PHY & ADB Bringup:**
+     - Registered `struct usb_phy` in `phy-qcom-snps-femto-v2.c` via `usb_add_phy_dev` so DWC3's `devm_usb_get_phy_by_phandle` successfully resolves `usb2_phy0`.
+     - In `dwc3/core.c`, added fallback from `usb-phy` phandle to generic `struct phy`, and treated absent/unported SuperSpeed `usb3_phy` as non-fatal by falling back to USB 2.0 High-Speed mode.
+  4. Pushed commit `e5b7fdc1f` to `AltafYafai/android_kernel_xiaomi_sm4450-6.12` on `lineage-24.0-6.12` and `work/6.12-platform-port`.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)
