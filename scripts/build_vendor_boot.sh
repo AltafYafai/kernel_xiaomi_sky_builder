@@ -115,6 +115,22 @@ if [ -s /tmp/vb_unpack/bootconfig ]; then
     MKBOOT_ARGS+=(--vendor_bootconfig /tmp/vb_unpack/bootconfig)
 fi
 
+# Ensure secondary ramdisk fragment (OrangeFox recovery) is always included for direct ADB recovery shell
+if [ ! -f /tmp/vb_unpack/vendor_ramdisk01 ]; then
+    echo "Secondary ramdisk fragment not present in base vendor_boot. Fetching OrangeFox recovery fragment..."
+    gh release download 20261019-39267552832 -p "vendor_boot_recovery_ramdisk.cpio.lz4" -O /tmp/vb_unpack/vendor_ramdisk01 -R AltafYafai/OrangeFox-Builder-Sky 2>/dev/null || \
+    curl -sL "https://github.com/AltafYafai/OrangeFox-Builder-Sky/releases/download/20261019-39267552832/vendor_boot_recovery_ramdisk.cpio.lz4" -o /tmp/vb_unpack/vendor_ramdisk01 || true
+fi
+
+if [ -f /tmp/vb_unpack/vendor_ramdisk01 ] && [ -s /tmp/vb_unpack/vendor_ramdisk01 ]; then
+    echo "Injecting secondary ramdisk fragment (OrangeFox recovery, $(wc -c < /tmp/vb_unpack/vendor_ramdisk01) bytes)..."
+    MKBOOT_ARGS+=(
+        --ramdisk_type 2
+        --ramdisk_name recovery
+        --vendor_ramdisk_fragment /tmp/vb_unpack/vendor_ramdisk01
+    )
+fi
+
 # Verify that vendor ramdisk fits safely within the physical memory headroom before DTB
 RAMDISK_INT=$((RAMDISK_ADDR))
 DTB_INT=$((DTB_ADDR))

@@ -252,6 +252,18 @@
   2. **Automated Memory Layout Verification:** Added automated checks in `scripts/build_vendor_boot.sh` ensuring `vendor_ramdisk` size never exceeds `DTB_ADDR - RAMDISK_ADDR`.
   3. **Preserved Permissive SELinux & AVB Footers:** Kept `androidboot.selinux=permissive` bootconfig and official `avbtool` hash footers intact.
 
+### Bringup Diagnostics: USB Shell (ADB), DWC3/PHY Drivers, and Pstore Ramoops Enablement
+* **Triggered:** 2026-11-02 14:45 UTC
+* **Symptoms:** Device stuck at Mi logo with custom 6.12 kernel in boot.img; no ADB detection; pstore empty after booting back to recovery.
+* **Root Cause Analysis:**
+  1. **USB Hardware Uninitialized:** In `sky_GKI.config`, `CONFIG_USB_DWC3_QCOM` was disabled (`# CONFIG_USB_DWC3_QCOM is not set`), and obsolete `CONFIG_USB_DWC3_MSM=m` was configured. Furthermore, in DT (`ravelin-usb.dtsi`), nodes used legacy names (`qcom,dwc-usb3-msm`, `qcom,usb-hsphy-snps-femto`), which Linux 6.12 drivers (`dwc3-qcom.c` and `phy-qcom-snps-femto-v2.c`) did not match.
+  2. **Pstore/Ramoops Inactive:** Linux 6.12 `fs/pstore/ram.c` only matched `ramoops`, ignoring `qcom,ramoops`. Without fixed physical reserved-memory addresses and explicit console/record sizes, panic/dmesg was never committed to RAM.
+  3. **Recovery Dependency on `boot.img`:** In GKI 2.0 / Android 13+, recovery executes the kernel from `boot.img`. Without the OrangeFox recovery fragment paired with 6.12 modules, the recovery environment could not launch.
+* **Fix Action:**
+  1. **Kernel USB Bringup:** Built `CONFIG_USB_DWC3_QCOM=y` and `CONFIG_PHY_QCOM_USB_SNPS_FEMTO_V2=y` directly into the kernel image. Added `qcom,dwc-usb3-msm` and `qcom,usb-hsphy-snps-femto` to driver match tables.
+  2. **Pstore/Ramoops Modernization:** Updated `fs/pstore/ram.c` to parse `memory-region` phandles and match `qcom,ramoops`. In `ravelin.dtsi` and `parrot.dtsi`, added `compatible = "ramoops"` with 512KB console-size and 256KB record-size buffers.
+  3. **OrangeFox Recovery Fragment Injection:** Re-enabled OrangeFox recovery fragment packaging in `scripts/build_vendor_boot.sh` alongside the 219 Linux 6.12 modules, enabling an automatic root ADB shell upon booting to recovery.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)
