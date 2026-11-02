@@ -252,17 +252,23 @@
   2. **Automated Memory Layout Verification:** Added automated checks in `scripts/build_vendor_boot.sh` ensuring `vendor_ramdisk` size never exceeds `DTB_ADDR - RAMDISK_ADDR`.
   3. **Preserved Permissive SELinux & AVB Footers:** Kept `androidboot.selinux=permissive` bootconfig and official `avbtool` hash footers intact.
 
-### Bringup Diagnostics: USB Shell (ADB), DWC3/PHY Drivers, and Pstore Ramoops Enablement
-* **Triggered:** 2026-11-02 14:45 UTC
-* **Symptoms:** Device stuck at Mi logo with custom 6.12 kernel in boot.img; no ADB detection; pstore empty after booting back to recovery.
+### Bringup Diagnostics: USB DWC3/PHY, UFS Storage, and Memory Collision Resolution
+* **Triggered:** 2026-11-02 16:05 UTC
+* **Symptoms:** Device stuck at Mi logo bootloop and failed recovery boot; no USB or UFS functionality.
 * **Root Cause Analysis:**
-  1. **USB Hardware Uninitialized:** In `sky_GKI.config`, `CONFIG_USB_DWC3_QCOM` was disabled (`# CONFIG_USB_DWC3_QCOM is not set`), and obsolete `CONFIG_USB_DWC3_MSM=m` was configured. Furthermore, in DT (`ravelin-usb.dtsi`), nodes used legacy names (`qcom,dwc-usb3-msm`, `qcom,usb-hsphy-snps-femto`), which Linux 6.12 drivers (`dwc3-qcom.c` and `phy-qcom-snps-femto-v2.c`) did not match.
-  2. **Pstore/Ramoops Inactive:** Linux 6.12 `fs/pstore/ram.c` only matched `ramoops`, ignoring `qcom,ramoops`. Without fixed physical reserved-memory addresses and explicit console/record sizes, panic/dmesg was never committed to RAM.
-  3. **Recovery Dependency on `boot.img`:** In GKI 2.0 / Android 13+, recovery executes the kernel from `boot.img`. Without the OrangeFox recovery fragment paired with 6.12 modules, the recovery environment could not launch.
+  1. **DTB Overwrite by Recovery Ramdisk:** In commit `a1e8f84`, the 55.8 MiB OrangeFox recovery ramdisk was re-injected into `vendor_boot`, swelling total vendor ramdisk to 69.1 MiB against a 15.0 MiB headroom before `DTB_ADDR` (0x01f00000). ABL stomped DTB in physical memory, aborting boot immediately before kernel execution.
+  2. **USB DWC3 Subsystem Failures:**
+     * `dwc3-qcom.c` attempted to `devm_platform_ioremap_resource` the entire 1MB `ssusb` range at 0xa600000, colliding with child `dwc3@a600000` (causing `-EBUSY`) and writing QSCRATCH registers into core space instead of offset `0xf8800`.
+     * `dwc3-qcom.c` aborted probe on missing `"apps-usb"` interconnect (downstream DT uses `"ddr-usb"`) and missing extcon.
+     * `phy-qcom-snps-femto-v2.c` failed probe because DT clock was named `"ref_clk"` (expected `"ref"`) and DT regulator was named `"vdd-supply"` (expected `"vdda-pll-supply"`).
+  3. **UFS Storage Controller Uninitialized:**
+     * `CONFIG_PHY_QCOM_QMP_UFS` was missing from `sky_GKI.config`.
+     * `phy-qcom-qmp-ufs.c` lacked DT match for downstream `qcom,ufs-phy-qmp-v4-waipio` (SM4450 UFS PHY), causing UFS host probe to defer indefinitely.
+     * `CONFIG_SCSI_UFS_QCOM` was compiled as a module (`=m`) rather than built-in (`=y`).
 * **Fix Action:**
-  1. **Kernel USB Bringup:** Built `CONFIG_USB_DWC3_QCOM=y` and `CONFIG_PHY_QCOM_USB_SNPS_FEMTO_V2=y` directly into the kernel image. Added `qcom,dwc-usb3-msm` and `qcom,usb-hsphy-snps-femto` to driver match tables.
-  2. **Pstore/Ramoops Modernization:** Updated `fs/pstore/ram.c` to parse `memory-region` phandles and match `qcom,ramoops`. In `ravelin.dtsi` and `parrot.dtsi`, added `compatible = "ramoops"` with 512KB console-size and 256KB record-size buffers.
-  3. **OrangeFox Recovery Fragment Injection:** Re-enabled OrangeFox recovery fragment packaging in `scripts/build_vendor_boot.sh` alongside the 219 Linux 6.12 modules, enabling an automatic root ADB shell upon booting to recovery.
+  1. **Purged OrangeFox Fragment from `vendor_boot`:** Reverted forced secondary fragment injection in `scripts/build_vendor_boot.sh` and enforced total multi-fragment memory headroom check.
+  2. **DWC3 USB Bringup:** Fixed QSCRATCH remapping at offset `0xf8800` via non-blocking `devm_ioremap`, added `"ddr-usb"` fallback for interconnect, relaxed extcon requirement, added `"ref_clk"` fallback for clock init, and added `"vdd"` fallback for regulator bulk get.
+  3. **UFS Storage Bringup:** Added `qcom,ufs-phy-qmp-v4-waipio` and `qcom,ufs-phy-qmp-v4-niobe` to `qmp_ufs_of_match_table` in `phy-qcom-qmp-ufs.c`, and enabled `CONFIG_PHY_QCOM_QMP_UFS=y`, `CONFIG_SCSI_UFS_QCOM=y`, `CONFIG_SCSI_UFS_CRYPTO_QTI=y`, and `CONFIG_SERIAL_MSM_GENI_CONSOLE=y` built directly into `sky_GKI.config`.
 
 ---
 
