@@ -238,6 +238,20 @@
   3. Pushed updated `lineage-24.0-6.12` to `AltafYafai/android_kernel_xiaomi_sm4450-6.12`.
   4. Updated `kernel_xiaomi_sky_builder` CI/CD workflows (`build-kernel-6.12.yml` and `cleanup-sky-6.12-runs.yml`) to default to `lineage-24.0-6.12`, cloning the complete standalone kernel directly while retaining automatic overlay fallback for legacy branches.
 
+### Fastboot Bootloop Root Cause & Resolution - DTB Memory Stomping Fix
+* **Triggered:** 2026-11-02 13:40 UTC
+* **Symptom:** Device continuously reboots at the Mi splash logo and fails to boot recovery when flashed with the fastboot bundle.
+* **Root Cause Diagnostics:**
+  1. **DTB Physical Memory Collision:** On Qualcomm SM4450 (Sky), `RAMDISK_ADDR` is `0x01000000` (16 MiB) and `DTB_ADDR` is `0x01f00000` (31 MiB), providing a memory window of exactly 15.0 MiB (`15,728,640 bytes`).
+  2. In commit `f568b14`, injecting the 55.8 MiB OrangeFox recovery ramdisk expanded `vendor_ramdisk` to **69.1 MiB** (`69,102,321 bytes`).
+  3. When loaded at `0x01000000`, the ramdisk spilled to `0x052ecca1`, **overwriting the DTB at `0x01f00000` by 50.9 MiB**.
+  4. Corrupted DTB caused immediate kernel panic in early `setup_arch()`, resetting the SoC and creating the observed continuous reboot loop at the Mi splash logo.
+  5. Recovery mode also failed to boot because it evaluated the same overlapping, corrupted `vendor_boot.img`.
+* **Fix Action:**
+  1. **Purged OrangeFox Recovery Fragment from `vendor_boot`:** Reverted forced secondary fragment injection in `scripts/build_vendor_boot.sh`. Fragment 0 containing the 219 Linux 6.12 modules occupies 12.68 MiB, fitting safely within the 15.0 MiB window with 2.32 MiB headroom.
+  2. **Automated Memory Layout Verification:** Added automated checks in `scripts/build_vendor_boot.sh` ensuring `vendor_ramdisk` size never exceeds `DTB_ADDR - RAMDISK_ADDR`.
+  3. **Preserved Permissive SELinux & AVB Footers:** Kept `androidboot.selinux=permissive` bootconfig and official `avbtool` hash footers intact.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)

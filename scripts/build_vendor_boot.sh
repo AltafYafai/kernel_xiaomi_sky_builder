@@ -115,20 +115,22 @@ if [ -s /tmp/vb_unpack/bootconfig ]; then
     MKBOOT_ARGS+=(--vendor_bootconfig /tmp/vb_unpack/bootconfig)
 fi
 
-# Ensure secondary ramdisk fragment (OrangeFox recovery) is always included
-if [ ! -f /tmp/vb_unpack/vendor_ramdisk01 ]; then
-    echo "Secondary ramdisk fragment not present in base vendor_boot. Fetching OrangeFox recovery fragment..."
-    gh release download 20261019-39267552832 -p "vendor_boot_recovery_ramdisk.cpio.lz4" -O /tmp/vb_unpack/vendor_ramdisk01 -R AltafYafai/OrangeFox-Builder-Sky 2>/dev/null || \
-    curl -sL "https://github.com/AltafYafai/OrangeFox-Builder-Sky/releases/download/20261019-39267552832/vendor_boot_recovery_ramdisk.cpio.lz4" -o /tmp/vb_unpack/vendor_ramdisk01 || true
-fi
-
-if [ -f /tmp/vb_unpack/vendor_ramdisk01 ] && [ -s /tmp/vb_unpack/vendor_ramdisk01 ]; then
-    echo "Injecting secondary ramdisk fragment (OrangeFox recovery, $(wc -c < /tmp/vb_unpack/vendor_ramdisk01) bytes)..."
-    MKBOOT_ARGS+=(
-        --ramdisk_type 2
-        --ramdisk_name recovery
-        --vendor_ramdisk_fragment /tmp/vb_unpack/vendor_ramdisk01
-    )
+# Verify that vendor ramdisk fits safely within the physical memory headroom before DTB
+RAMDISK_INT=$((RAMDISK_ADDR))
+DTB_INT=$((DTB_ADDR))
+if [ "$DTB_INT" -gt "$RAMDISK_INT" ]; then
+    HEADROOM=$((DTB_INT - RAMDISK_INT))
+    RD_SIZE=$(wc -c < /tmp/vb_unpack/vendor_ramdisk00)
+    echo "Memory layout verification:"
+    echo "  RAMDISK_ADDR: $RAMDISK_ADDR"
+    echo "  DTB_ADDR:     $DTB_ADDR"
+    echo "  Headroom:     $HEADROOM bytes ($((HEADROOM / 1048576)) MiB)"
+    echo "  Ramdisk 0:    $RD_SIZE bytes ($((RD_SIZE / 1048576)) MiB)"
+    if [ "$RD_SIZE" -ge "$HEADROOM" ]; then
+        echo "ERROR: Vendor ramdisk 0 ($RD_SIZE bytes) exceeds available headroom before DTB ($HEADROOM bytes)!"
+        echo "This would cause ABL / Linux kernel DTB memory corruption and immediate bootloop."
+        exit 1
+    fi
 fi
 
 echo "Repacking vendor_boot.img with mkbootimg.py..."
