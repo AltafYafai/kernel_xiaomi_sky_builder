@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - work/6.12-platform-port
+      - lineage-24.0-6.12
+      - main
     paths:
       - .github/workflows/cleanup-sky-6.12-runs.yml
 
@@ -18,7 +20,7 @@ jobs:
       - name: Cancel duplicate Sky 6.12 builds and dispatch exactly one
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BRANCH: work/6.12-platform-port
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           workflow="build-kernel-6.12.yml"

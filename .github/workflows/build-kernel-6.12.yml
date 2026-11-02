@@ -9,12 +9,14 @@ on:
   push:
     branches:
       - work/6.12-platform-port
+      - lineage-24.0-6.12
+      - main
   workflow_dispatch:
     inputs:
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'work/6.12-platform-port'
+        default: 'lineage-24.0-6.12'
       DEVICETREES_BRANCH:
         description: 'Devicetrees Source Branch'
         required: true
@@ -143,17 +145,22 @@ jobs:
 
           AUTH_HEADER="x-access-token:${GH_TOKEN}"
 
-          # Apply the full Sky 6.12 vendor kernel overlay directly onto Google ACK
-          echo "Cloning Android Common Kernel android16-6.12 baseline..."
-          git clone --depth=1 -b android16-6.12 \
-            https://android.googlesource.com/kernel/common kernel
+          # Clone the Sky 6.12 kernel tree (default: lineage-24.0-6.12)
+          TARGET_KERNEL_BRANCH="${{ github.event.inputs.KERNEL_BRANCH || 'lineage-24.0-6.12' }}"
 
-          echo "Cloning Sky 6.12 vendor kernel overlay..."
-          git clone --depth=1 -b ${{ github.event.inputs.KERNEL_BRANCH || 'work/6.12-platform-port' }} \
-            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel-overlay
+          echo "Cloning Sky 6.12 kernel (${TARGET_KERNEL_BRANCH})..."
+          git clone --depth=1 -b "${TARGET_KERNEL_BRANCH}" \
+            https://${AUTH_HEADER}@github.com/AltafYafai/android_kernel_xiaomi_sm4450-6.12.git kernel
 
-          echo "Applying full Sky 6.12 vendor kernel overlay..."
-          rsync -a --exclude='.git' kernel-overlay/ kernel/
+          # If the branch is an overlay-only tree (lacking root Makefile), overlay it onto Google ACK baseline
+          if [ ! -f kernel/Makefile ]; then
+            echo "Branch ${TARGET_KERNEL_BRANCH} is an overlay-only tree; applying onto Google ACK android16-6.12 baseline..."
+            mv kernel kernel-overlay
+            git clone --depth=1 -b android16-6.12 \
+              https://android.googlesource.com/kernel/common kernel
+            rsync -a --exclude='.git' kernel-overlay/ kernel/
+            rm -rf kernel-overlay
+          fi
 
           cd kernel
           test -f Makefile

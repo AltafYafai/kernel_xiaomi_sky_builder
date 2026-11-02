@@ -29,7 +29,8 @@
 | **M5: Out-of-Tree Modules Porting** | Xiaomi Touch, Display DRM, Hardware | ✅ **Completed** | 185 `.ko` modules built & packaged |
 | **M6: Boot Image Packaging** | AnyKernel3 & Fastboot Bundle | ✅ **Completed** | Flashables published in GitHub Releases |
 | **M7: Full ACK 6.12 Seeding** | Seed `android_kernel_xiaomi_sm4450-6.12` | ✅ **Completed** | Full 1.2M+ commits seeded via checkpoint chunking |
-| **M8: Hardware Bringup & Boot Verification** | Test boot on device | 🟡 **Ready for Testing** | Validation with AnyKernel3 or Fastboot |
+| **M8: Platform Port Merge** | Merge `work/6.12-platform-port` into `lineage-24.0-6.12` | ✅ **Completed** | Cleanly merged 81 platform port files into full tree |
+| **M9: Hardware Bringup & Boot Verification** | Test boot on device | 🟡 **Ready for Testing** | Validation with AnyKernel3 or Fastboot |
 
 ---
 
@@ -228,6 +229,14 @@
   1. **Dual-Fragment Packaging (`vendor_boot.img`):** Updated `scripts/build_vendor_boot.sh` to ensure `vendor_boot_recovery_ramdisk.cpio.lz4` (55.8 MiB) is always injected as Fragment 1 (`type=2, name='recovery'`). Volume Up + Power now boots directly into OrangeFox on the 6.12 kernel.
   2. **Bringup SELinux Permissive:** Configured `bootconfig` to enforce `androidboot.selinux=permissive` during bringup, preventing init stalls and enabling early `adbd`.
   3. **Purged `vbmeta` & `dtbo` from Fastboot Bundle:** Updated `fastboot_bundle` (`flash.sh`, `flash.bat`) and AnyKernel3 to strictly flash `boot` and `vendor_boot`, preserving the host ROM's trusted `vbmeta` and `dtbo`.
+
+### Platform Port Integration & Builder Modernization
+* **Date:** 2026-11-02
+* **Action:**
+  1. Cleanly merged all 81 SM4450 platform port files from `work/6.12-platform-port` into the default repository branch `lineage-24.0-6.12` (Commit `3f240baf520fffe29b73693dec2ccec2bf5f0f00`).
+  2. Preserved the full 87,000-file Google ACK 6.12 tree while seamlessly integrating Parrot and Ravelin clock, pinctrl, interconnect, iommu, and memory buffer drivers.
+  3. Pushed updated `lineage-24.0-6.12` to `AltafYafai/android_kernel_xiaomi_sm4450-6.12`.
+  4. Updated `kernel_xiaomi_sky_builder` CI/CD workflows (`build-kernel-6.12.yml` and `cleanup-sky-6.12-runs.yml`) to default to `lineage-24.0-6.12`, cloning the complete standalone kernel directly while retaining automatic overlay fallback for legacy branches.
 
 ---
 
