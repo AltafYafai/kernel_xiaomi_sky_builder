@@ -311,8 +311,21 @@
   1. **DT Match Tables:** Added `qcom,sm4450-gcc`, `qcom,ravelin-gcc`, `dispcc`, `camcc`, `gpucc`, `videocc`, and `tlmm` to driver `of_device_id` match tables in the kernel.
   2. **Built-In Core SoC Drivers:** Set `CONFIG_COMMON_CLK_QCOM=y`, `CONFIG_SM_GCC_PARROT=y`, `CONFIG_SM_DISPCC_PARROT=y`, `CONFIG_PINCTRL_MSM=y`, `CONFIG_PINCTRL_PARROT=y`, `CONFIG_PINCTRL_RAVELIN=y`, `CONFIG_INTERCONNECT_QCOM=y`, `CONFIG_INTERCONNECT_QCOM_BCM_VOTER=y`, `CONFIG_INTERCONNECT_QCOM_RPMH=y`, `CONFIG_INTERCONNECT_QCOM_PARROT=y`, `CONFIG_INTERCONNECT_QCOM_RAVELIN=y`, `CONFIG_QCOM_CLK_RPMH=y`, `CONFIG_QCOM_RPMH=y`, `CONFIG_QCOM_COMMAND_DB=y`, `CONFIG_SPMI_MSM_PMIC_ARB=y`, `CONFIG_QCOM_PDC=y`, and `CONFIG_ARM_SMMU=y` directly in `sky_GKI.config`. Core hardware initializes at `arch_initcall`/`core_initcall`/`subsys_initcall` with zero module dependency.
   3. **Ramdisk Patching Fixed:** Corrected `patch_ramdisk.py` to purge stale modules first, inject new modules, and create correct aliases (`*-parrot.ko` -> `*-sm4450.ko`).
-  4. **OrangeFox Recovery Restored:** Re-enabled dual-fragment packaging in `scripts/build_vendor_boot.sh` (Fragment 1: recovery) and corrected memory headroom verification to evaluate Fragment 0.
+  4. **Ramdisk Patching Fixed:** Corrected `patch_ramdisk.py` to purge stale modules first, inject new modules, and create correct aliases (`*-parrot.ko` -> `*-sm4450.ko`).
   5. **CI/CD Platform Driver Validation:** Updated `build-kernel-6.12.yml` to accept both built-in (`=y`) and module (`.ko`) platform drivers.
+
+### Mi Logo 0.5-Second Reboot Loop Resolution - DTB Stomp Purge
+* **Triggered:** 2026-11-02 18:45 UTC
+* **Symptom:** Device displays Mi logo for ~0.5 seconds and immediately resets in a continuous early bootloop.
+* **Root Cause Diagnostics:**
+  1. In commit `746dc07`, secondary fragment injection of the 55.8 MiB OrangeFox recovery ramdisk was re-enabled, inflating total vendor ramdisk to **68.8 MiB**.
+  2. The Qualcomm ABL bootloader loads all vendor ramdisks at `RAMDISK_ADDR` (`0x01000000`).
+  3. Because `DTB_ADDR` is at `0x01f00000` (15.0 MiB offset), loading 68.8 MiB completely overwrote the Device Tree (DTB) by ~53 MiB.
+  4. On early boot, ABL / `setup_arch()` detected corrupted DTB magic (`0xd00dfeed`), triggering an immediate hardware reset / watchdog reboot within 0.5s.
+* **Fix Action:**
+  1. **Purged OrangeFox Recovery Fragment from `vendor_boot`:** `vendor_boot.img` is dedicated to normal boot with Fragment 0 (12.7 MiB of 6.12 modules), leaving 2.3 MiB safe headroom before DTB.
+  2. **Strict Cumulative Headroom Verification:** Restored cumulative `TOTAL_RD_SIZE` verification in `scripts/build_vendor_boot.sh` ensuring all ramdisk fragments together strictly fit within 15.0 MiB.
+  3. **Pinctrl Binding Hygiene:** Removed extraneous `qcom,sm4450-tlmm` entry from `pinctrl-parrot.c` so only `pinctrl-ravelin.c` manages SM4450 hardware pins.
 
 ---
 

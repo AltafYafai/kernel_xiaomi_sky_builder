@@ -411,7 +411,7 @@ jobs:
           echo "2. Generating dtbo-6.12.img..."
           bash ../scripts/build_dtbo.sh artifacts/dtbo-6.12.img kernel/out/arch/arm64/boot/dts
 
-          echo "3. Generating vendor_boot-6.12.img (Fragment 0: 6.12 modules, Fragment 1: OrangeFox recovery)..."
+          echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & verified reference DTBs)..."
           bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
 
           ls -lh artifacts/
