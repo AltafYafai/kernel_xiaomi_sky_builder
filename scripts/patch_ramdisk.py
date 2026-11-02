@@ -59,7 +59,24 @@ def main():
     print(f"[*] Source modules directory: {modules_src}")
     print(f"[*] Target kernel version prefix: {target_kver}")
     
-    # 1. Copy all newly compiled modules into destination
+    # 1. Purge all stale modules from base ramdisk that do not match target kernel
+    purged_stale = 0
+    for f in glob.glob(os.path.join(mods_dst, "*.ko")):
+        try:
+            with open(f, 'rb') as fp:
+                data = fp.read()
+            info = parse_modinfo(data)
+            vm = info.get('vermagic')
+            if not vm or not vm.startswith(target_kver):
+                os.remove(f)
+                purged_stale += 1
+        except Exception:
+            os.remove(f)
+            purged_stale += 1
+    if purged_stale:
+        print(f"[+] Purged {purged_stale} stale non-{target_kver}* modules from base ramdisk.")
+
+    # 2. Copy all newly compiled modules into destination
     count_injected = 0
     for root, _, files in os.walk(modules_src):
         for f in files:
@@ -81,25 +98,25 @@ def main():
                 
     print(f"[+] Injected {count_injected} modules from {modules_src}")
     
-    # 2. Setup compatibility aliases for SM4450 / Parrot / Ravelin hardware
+    # 3. Setup compatibility aliases (Parrot/Ravelin module -> SM4450 alias)
     aliases_map = {
-        "pinctrl-sm4450.ko": ["pinctrl-parrot.ko", "pinctrl-ravelin.ko"],
-        "gcc-sm4450.ko": ["gcc-parrot.ko"],
-        "dispcc-sm4450.ko": ["dispcc-parrot.ko"],
-        "camcc-sm4450.ko": ["camcc-parrot.ko"],
-        "gpucc-sm4450.ko": ["gpucc-parrot.ko"],
+        "gcc-parrot.ko": ["gcc-sm4450.ko"],
+        "dispcc-parrot.ko": ["dispcc-sm4450.ko"],
+        "camcc-parrot.ko": ["camcc-sm4450.ko"],
+        "gpucc-parrot.ko": ["gpucc-sm4450.ko"],
+        "pinctrl-parrot.ko": ["pinctrl-sm4450.ko"],
+        "pinctrl-ravelin.ko": ["pinctrl-sm4450.ko"],
     }
     for src_name, alias_list in aliases_map.items():
         src_file = os.path.join(mods_dst, src_name)
         if os.path.isfile(src_file):
             for alias_name in alias_list:
                 alias_file = os.path.join(mods_dst, alias_name)
-                with open(src_file, 'rb') as s_fp:
-                    with open(alias_file, 'wb') as d_fp:
-                        d_fp.write(s_fp.read())
-                print(f"[+] Created compatibility alias: {alias_name} -> {src_name}")
+                if not os.path.isfile(alias_file):
+                    shutil.copy2(src_file, alias_file)
+                    print(f"[+] Created compatibility alias: {alias_name} <- {src_name}")
                 
-    # 3. Scan all modules in lib/modules, purge stale non-matching modules
+    # 4. Scan all modules in lib/modules, ensure only valid target kernel modules remain
     modules = {}
     purged_count = 0
     for f in glob.glob(os.path.join(mods_dst, "*.ko")):
@@ -113,7 +130,6 @@ def main():
         vm = info.get('vermagic')
         
         if not vm or not vm.startswith(target_kver):
-            # Stale module from prior kernel! Purge it!
             os.remove(f)
             purged_count += 1
             continue
@@ -125,7 +141,7 @@ def main():
             'vermagic': vm
         }
         
-    print(f"[+] Purged {purged_count} stale modules; retained {len(modules)} matching {target_kver}* modules.")
+    print(f"[+] Purged {purged_count} remaining non-matching modules; retained {len(modules)} matching {target_kver}* modules.")
     
     # 4. Generate clean modules.dep
     dep_file = os.path.join(mods_dst, "modules.dep")

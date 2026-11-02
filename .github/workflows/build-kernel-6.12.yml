@@ -354,10 +354,14 @@ jobs:
           find out ../sm4450-modules -name "*.ko" | wc -l
           find out ../sm4450-modules -name "*.ko" | head -n 30 || true
 
-          echo "=== REQUIRED SKY PLATFORM MODULES ==="
-          for module in pinctrl-parrot.ko pinctrl-ravelin.ko qnoc-parrot.ko qnoc-ravelin.ko gcc-parrot.ko dispcc-parrot.ko camcc-parrot.ko gpucc-parrot.ko videocc-parrot.ko; do
-            if ! find out -name "$module" -print -quit | grep -q .; then
-              echo "FATAL ERROR: required platform module $module was not built"
+          echo "=== REQUIRED SKY PLATFORM DRIVERS ==="
+          for drv in pinctrl-parrot pinctrl-ravelin qnoc-parrot qnoc-ravelin gcc-parrot dispcc-parrot camcc-parrot gpucc-parrot videocc-parrot; do
+            if find out -name "${drv}.ko" -print -quit | grep -q .; then
+              echo "✓ Driver $drv built as module (${drv}.ko)"
+            elif grep -Eq "CONFIG_.*$(echo $drv | tr 'a-z-' 'A-Z_')=y" out/.config; then
+              echo "✓ Driver $drv built directly into kernel image"
+            else
+              echo "FATAL ERROR: required platform driver $drv was not built"
               exit 1
             fi
           done
@@ -395,7 +399,7 @@ jobs:
           echo "2. Generating dtbo-6.12.img..."
           bash ../scripts/build_dtbo.sh artifacts/dtbo-6.12.img kernel/out/arch/arm64/boot/dts
 
-          echo "3. Generating vendor_boot-6.12.img (with 6.12 modules in Fragment 0 & verified reference DTBs)..."
+          echo "3. Generating vendor_boot-6.12.img (Fragment 0: 6.12 modules, Fragment 1: OrangeFox recovery)..."
           bash ../scripts/build_vendor_boot.sh kernel/out/arch/arm64/boot/dts . artifacts/vendor_boot-6.12.img
 
           ls -lh artifacts/

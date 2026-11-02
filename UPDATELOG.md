@@ -294,6 +294,26 @@
      - In `dwc3/core.c`, added fallback from `usb-phy` phandle to generic `struct phy`, and treated absent/unported SuperSpeed `usb3_phy` as non-fatal by falling back to USB 2.0 High-Speed mode.
   4. Pushed commit `e5b7fdc1f` to `AltafYafai/android_kernel_xiaomi_sm4450-6.12` on `lineage-24.0-6.12` and `work/6.12-platform-port`.
 
+### Bringup Diagnostics: Root Cause Resolution for Mi Logo Freeze, Missing Clocks, and Recovery Stall
+* **Triggered:** 2026-11-02 18:20 UTC
+* **Symptoms:** Device stuck at Mi logo splash screen indefinitely; no ADB detected; Volume Up + Power failed to boot recovery.
+* **Root Cause Diagnostics:**
+  1. **Clock Controller Incompatible DT Match Tables:**
+     - Devicetrees in `vendor_boot.img` define `qcom,sm4450-gcc`, `qcom,sm4450-dispcc`, `qcom,sm4450-camcc`, and `qcom,sm4450-gpucc`.
+     - Kernel drivers (`gcc-parrot.c`, `dispcc-parrot.c`, etc.) strictly matched `qcom,parrot-gcc`.
+     - The Linux kernel never matched the Global Clock Controller (GCC). Without GCC, zero hardware peripheral clocks could be turned on; UFS storage, USB DWC3, and display controllers deferred probe indefinitely.
+  2. **Inverted Alias Logic in `patch_ramdisk.py` Deleted Clock Modules:**
+     - In `patch_ramdisk.py`, `aliases_map` had `"gcc-sm4450.ko": ["gcc-parrot.ko"]`, which copied stale Linux 6.6 modules from the reference ramdisk over newly compiled 6.12 modules.
+     - The subsequent vermagic filter deleted all modules with vermagic `!= 6.12.*`, completely wiping out GCC, DISPCC, CAMCC, and GPUCC from the ramdisk.
+  3. **Missing Recovery Fragment:**
+     - `vendor_boot.img` had stripped Fragment 1 (OrangeFox recovery), preventing the device from ever entering recovery mode.
+* **Fix Action:**
+  1. **DT Match Tables:** Added `qcom,sm4450-gcc`, `qcom,ravelin-gcc`, `dispcc`, `camcc`, `gpucc`, `videocc`, and `tlmm` to driver `of_device_id` match tables in the kernel.
+  2. **Built-In Core SoC Drivers:** Set `CONFIG_COMMON_CLK_QCOM=y`, `CONFIG_SM_GCC_PARROT=y`, `CONFIG_SM_DISPCC_PARROT=y`, `CONFIG_PINCTRL_MSM=y`, `CONFIG_PINCTRL_PARROT=y`, `CONFIG_PINCTRL_RAVELIN=y`, `CONFIG_INTERCONNECT_QCOM=y`, `CONFIG_INTERCONNECT_QCOM_BCM_VOTER=y`, `CONFIG_INTERCONNECT_QCOM_RPMH=y`, `CONFIG_INTERCONNECT_QCOM_PARROT=y`, `CONFIG_INTERCONNECT_QCOM_RAVELIN=y`, `CONFIG_QCOM_CLK_RPMH=y`, `CONFIG_QCOM_RPMH=y`, `CONFIG_QCOM_COMMAND_DB=y`, `CONFIG_SPMI_MSM_PMIC_ARB=y`, `CONFIG_QCOM_PDC=y`, and `CONFIG_ARM_SMMU=y` directly in `sky_GKI.config`. Core hardware initializes at `arch_initcall`/`core_initcall`/`subsys_initcall` with zero module dependency.
+  3. **Ramdisk Patching Fixed:** Corrected `patch_ramdisk.py` to purge stale modules first, inject new modules, and create correct aliases (`*-parrot.ko` -> `*-sm4450.ko`).
+  4. **OrangeFox Recovery Restored:** Re-enabled dual-fragment packaging in `scripts/build_vendor_boot.sh` (Fragment 1: recovery) and corrected memory headroom verification to evaluate Fragment 0.
+  5. **CI/CD Platform Driver Validation:** Updated `build-kernel-6.12.yml` to accept both built-in (`=y`) and module (`.ko`) platform drivers.
+
 ---
 
 ## 4. Known Subsystem API Breakers (6.6 ➔ 6.12)
